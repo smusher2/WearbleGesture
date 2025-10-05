@@ -67,8 +67,8 @@ void PeriphCommonClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_USART1_UART_Init(void);
-const float ACC_LSB_PER_G  = 4096.0f;      // ±8 g
-const float GYR_LSB_PER_DPS = 32.768f;     // ±2000 dps
+const float ACC_LSB_PER_G  = 4096.0f;      //  g
+const float GYR_LSB_PER_DPS = 32.768f;     // ±1000 dps
 const float G_TO_MPS2  =    9.80665f;
 /* USER CODE BEGIN PFP */
 
@@ -429,3 +429,4 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
+
