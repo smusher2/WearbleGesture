@@ -36,34 +36,7 @@ void bmi323_deactivate_spi(bmi323TypeDef* sensor)
 	HAL_GPIO_WritePin(sensor->spi_cs_port, sensor->spi_cs_pin, GPIO_PIN_SET);
 }
 
-/*
- static void bmi323_write_spi(bmi323TypeDef* sensor, uint8_t offset_reg, uint8_t* data, uint16_t data_size)
-{
-	uint8_t data_temp[20];
-	bmi323_activate_spi(sensor);
-	data_temp[0] = offset_reg;
-	HAL_SPI_Transmit(sensor->bmi323_spi, data_temp, 1, 1000);
-	HAL_SPI_Transmit(sensor->bmi323_spi, data, data_size, 1000);
-	bmi323_deactivate_spi(sensor);
-}
- */
 
-
-/*
- *static void bmi323_receive_spi(bmi323TypeDef* sensor, uint8_t offset_reg, uint8_t* data, uint16_t data_size)
-{
-	uint8_t data_temp[20], data_temp_byte;
-	data_temp[0] = offset_reg | 0x80;
-	bmi323_activate_spi(sensor);
-	HAL_SPI_Transmit(sensor->bmi323_spi, data_temp, 1, 1000);
-	//HAL_SPI_Receive(sensor->bmi323_spi, &data_temp_byte, 1, 1000);
-	//HAL_SPI_Receive(sensor->bmi323_spi, data, data_size, 1000);
-	uint8_t dummy_tx = 0xFF;
-	HAL_SPI_TransmitReceive(sensor->bmi323_spi, &dummy_tx, &data_temp_byte, 1, 1000);
-	HAL_SPI_TransmitReceive(sensor->bmi323_spi, &dummy_tx, data, data_size, 1000);
-	bmi323_deactivate_spi(sensor);
-}
- */
 
 void bmi323_write_spi(bmi323TypeDef* sensor, uint8_t reg, uint8_t* data, uint16_t len)
 {
@@ -88,6 +61,61 @@ static void bmi323_receive_spi(bmi323TypeDef* sensor, uint8_t offset_reg, uint8_
 
 }
 
+void bmi323_enable_tap(bmi323TypeDef* sensor)
+{
+
+	extern UART_HandleTypeDef huart1;  // ✅ use the real one from usart.c
+	char msg[32];  // buffer for UART printing
+
+	uint8_t temp_data[2] = {0};
+	bmi323_receive_spi(sensor, FEATURE_CTRL_REG, temp_data, 2);
+	temp_data[0] |= 0x01;
+	bmi323_write_spi(sensor, FEATURE_CTRL_REG, temp_data, 2);
+
+	uint8_t tap_en[2] = {0};
+	bmi323_receive_spi(sensor, FEATURE_IO0_REG, tap_en, 2);
+	tap_en[1] |= (1u<<4) | (1u<<5);
+	bmi323_write_spi(sensor, FEATURE_IO0_REG, tap_en, 2);
+
+	uint8_t map_int[2] = {0};
+	bmi323_receive_spi(sensor, INT_MAP2, map_int, 2);
+    map_int[0] = (uint8_t)((map_int[0] & ~0x03u) | 0x01u);
+	bmi323_write_spi(sensor, INT_MAP2, map_int, 2);
+
+
+	uint8_t io[2] = {0};
+	bmi323_receive_spi(sensor, IO_INT_CTRL, io, 2);
+	io[0] |=  (1u<<2);   // int1_output_en = 1  👈 required
+	io[0] &= ~(1u<<1);   // int1_od = 0 (push-pull)
+	io[0] |=  (1u<<0);   // int1_lvl = 1 (active high)
+	bmi323_write_spi(sensor, IO_INT_CTRL, io, 2);
+
+
+	//configure modes in extended reg field
+	uint8_t tap1_addr = TAP_1;
+	uint8_t tap2_addr = TAP_2;
+
+		/*
+	bmi323_write_spi(sensor, FEATURE_DATA_ADDR, &tap1_addr, 1);
+	uint8_t mode1[2] = {0};
+	bmi323_receive_spi(sensor, FEATURE_DATA_TX, mode1, 2);
+	mode1[0] = (uint8_t)((mode1[0] & ~(0x3u << 6)) | (0x2u << 6));
+	bmi323_write_spi(sensor, FEATURE_DATA_TX, mode1, 2);
+
+	bmi323_write_spi(sensor, FEATURE_DATA_ADDR, &tap2_addr, 1);
+	uint8_t mode2[2] = {0};
+	bmi323_receive_spi(sensor, FEATURE_DATA_TX, mode2, 2);
+	mode2[0] = (uint8_t)(mode2[0] | (0xFFu));
+	mode2[1] = (uint8_t)(mode2[1] | (0x3u));
+	bmi323_write_spi(sensor, FEATURE_DATA_TX, mode2, 2);
+	bmi323_receive_spi(sensor, FEATURE_DATA_TX, mode2, 2);
+*/
+	//snprintf(msg, sizeof(msg), "reg read: 0x%02X 0x%02X \r\n", mode2[1], mode2[0]);
+	//HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
+
+	uint8_t dummy[2];
+	bmi323_receive_spi(sensor, FEATURE_IO_STATUS_REG, dummy, 2); // read to clear
+}
 
 bmi323_StatusTypeDef bmi323_init(bmi323TypeDef* sensor)
 {
@@ -141,15 +169,15 @@ bmi323_StatusTypeDef bmi323_init(bmi323TypeDef* sensor)
 
 
 	//Normal Power Mode Operation: write data bits and read
-	temp_data[0] = 0x27;
-	temp_data[1] = 0x40;
-	bmi323_write_spi(sensor, REG_ACC_CONF_BMI323, temp_data, 2);
-	HAL_Delay(10);
+	//temp_data[0] = 0x27;
+	//temp_data[1] = 0x40;
+	//bmi323_write_spi(sensor, REG_ACC_CONF_BMI323, temp_data, 2);
+	//HAL_Delay(10);
 
-	temp_data[0] = 0x4B;
-	temp_data[1] = 0x40;
-	bmi323_write_spi(sensor, REG_GYR_CONF_BMI323, temp_data, 2);
-	HAL_Delay(10);
+	//temp_data[0] = 0x4B;
+	//temp_data[1] = 0x40;
+	//bmi323_write_spi(sensor, REG_GYR_CONF_BMI323, temp_data, 2);
+	//HAL_Delay(10);
 
 
 	return BMI323_OK;
@@ -185,5 +213,60 @@ bmi323_StatusTypeDef bmi323_read_data(bmi323TypeDef* sensor)
 
 
 }
+
+void BMI323_HandleTapEvent(bmi323TypeDef* sensor, uint32_t* haptic_deadline, uint8_t* haptic_active)
+{
+
+	extern UART_HandleTypeDef huart1;  // ✅ use the real one from usart.c
+
+	char msg[32];  // buffer for UART printing
+
+    uint8_t tap_evt[2];
+    bmi323_receive_spi(sensor, FEATURE_EVENT_EXT, tap_evt, 2); // [LSB, MSB]
+    uint8_t tap_type = tap_evt[0];
+    if (tap_type & (1u<<4)) {
+        // double tap
+    	snprintf(msg, sizeof(msg), "Double Tap\r\n");
+    	HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
+    } else if (tap_type & (1u<<3)) {
+        // single tap
+    	snprintf(msg, sizeof(msg), "Single Tap\r\n");
+    	HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
+    }
+
+    // (reading FEATURE_EVENT_EXT clears the event indicators)
+    Haptic_Buzz_Start(haptic_deadline, haptic_active);
+
+}
+
+// Call this once, before bmi323_enable_tap() and before enabling acc/gyro.
+bmi323_StatusTypeDef BMI323_Feature_Engine_Enable(bmi323TypeDef* sensor)
+{
+    // 1) FEATURE_IO2 = 0x012C  (LSB first)
+    uint8_t io2[2] = { 0x2C, 0x01 };
+    bmi323_write_spi(sensor, FEATURE_IO2_REG, io2, 2);
+
+    // 2) FEATURE_IO_STATUS = 0x0001 (LSB first)
+    uint8_t iostat[2] = { 0x01, 0x00 };
+    bmi323_write_spi(sensor, FEATURE_IO_STATUS_REG, iostat, 2);
+
+    // 3) FEATURE_CTRL.engine_en = 1
+    uint8_t fctrl[2] = {0};
+    bmi323_receive_spi(sensor, FEATURE_CTRL_REG, fctrl, 2);
+    fctrl[0] |= 0x01;                 // bit0 = engine_en
+    bmi323_write_spi(sensor, FEATURE_CTRL_REG, fctrl, 2);
+
+    // 4) Poll FEATURE_IO1.error_status for 0b001 (datasheet’s “engine ready”)
+    uint32_t t0 = HAL_GetTick();
+    while ((HAL_GetTick() - t0) < 50) {     // ~50 ms timeout
+        uint8_t io1[2] = {0};
+        bmi323_receive_spi(sensor, FEATURE_IO1_REG, io1, 2);
+        if ((io1[0] & 0x0F) == 0x01) {      // error_status==0b001
+            return BMI323_OK;
+        }
+    }
+    return BMI323_CONFIG_FILE_ERROR;
+}
+
 
 

@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "bmi_323.h"
+#include "gpio.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -49,6 +50,7 @@ UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
 bmi323_StatusTypeDef imu_status;
+bmi323_StatusTypeDef feature_status;
 bmi323_StatusTypeDef imu_chip_status;
 
 bmi323TypeDef imu_sensor = {
@@ -58,6 +60,10 @@ bmi323TypeDef imu_sensor = {
 };
 int16_t ax, ay, az, gx, gy, gz;
 float ax_m, ay_m, az_m, gx_m, gy_m, gz_m;
+volatile uint8_t g_tap_irq = 0;
+uint32_t haptic_deadline;
+uint8_t haptic_active = 0;
+
 
 /* USER CODE END PV */
 
@@ -67,9 +73,9 @@ void PeriphCommonClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_USART1_UART_Init(void);
-const float ACC_LSB_PER_G  = 4096.0f;      //  g
-const float GYR_LSB_PER_DPS = 32.768f;     // ±1000 dps
-const float G_TO_MPS2  =    9.80665f;
+static const float ACC_LSB_PER_G  = 4096.0f;      // ±8 g
+static const float GYR_LSB_PER_DPS = 16.384f;     // ±2000 dps
+static const float G_TO_MPS2  =    9.80665f;
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -116,11 +122,21 @@ int main(void)
   /* USER CODE BEGIN 2 */
   HAL_Delay(1000);
   imu_status = bmi323_init(&imu_sensor);
+  feature_status = BMI323_Feature_Engine_Enable(&imu_sensor);          // write IO2=0x012C, IO_STATUS=0x0001,
 
   uint8_t gyr[2];
-  gyr[0] = (0<<7) | (0x3<<4) | 0x8;   // 0x28: BW=0, RANGE=±500, ODR=100 Hz
+  gyr[0] = (0<<7) | (0x4<<4) | 0x8;   // 0x28: BW=0, RANGE=±2000, ODR=100 Hz
   gyr[1] = 0x40;                       // mode = 0b100 (enabled)
   bmi323_write_spi(&imu_sensor, REG_GYR_CONF_BMI323, gyr, 2);
+  HAL_Delay(10);
+
+  uint8_t acc[2];
+  acc[0] = (0<<7) | (0x2<<4) | 0x9;  // BW=0, ±8g, ODR=200 Hz
+  acc[1] = 0x40;                      // normal/enable
+  bmi323_write_spi(&imu_sensor, REG_ACC_CONF_BMI323, acc, 2);
+  HAL_Delay(10);
+
+  bmi323_enable_tap(&imu_sensor);
 
   /* USER CODE END 2 */
 
@@ -129,6 +145,14 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
+
+	  	  	  if (g_tap_irq)
+	  	  	  {
+	  	  		  g_tap_irq = 0;
+	  	  		  BMI323_HandleTapEvent(&imu_sensor, &haptic_deadline, &haptic_active);   // read FEATURE_EVENT_EXT and act
+	  	  	  }
+	  	      Haptic_Buzz_Check2STOP(&haptic_deadline, &haptic_active);
+
 
 	  	 	  bmi323_read_data(&imu_sensor);
 	  	   	  ax = imu_sensor.imu_data.ax;
@@ -147,9 +171,9 @@ int main(void)
 
 
 
-	  	       char msg1[200];
+	  	      char msg1[200];
 
-	  	 	   snprintf(msg1, sizeof(msg1), "AX: %.3f, AY: %.3f, AZ: %.3f, GX: %.3f, GY: %.3f, GZ: %.3f \r\n", ax_m, ay_m, az_m, gx_m, gy_m, gz_m);
+	  	 	  snprintf(msg1, sizeof(msg1), "AX: %.3f, AY: %.3f, AZ: %.3f, GX: %.3f, GY: %.3f, GZ: %.3f \r\n", ax_m, ay_m, az_m, gx_m, gy_m, gz_m);
 
 	  	 	    // 3. Transmit over UART (blocking mode)
 	  	 	  HAL_UART_Transmit(&huart1, (uint8_t*)msg1, strlen(msg1), HAL_MAX_DELAY);
@@ -376,6 +400,7 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   GPIO_InitStruct.Alternate = GPIO_AF5_SPI2;
+
   HAL_GPIO_Init(SPI2_SCK_GPIO_Port, &GPIO_InitStruct);
 
   GPIO_InitStruct.Pin = GPIO_PIN_14|GPIO_PIN_15;
@@ -392,10 +417,31 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(SPI2_CS_GPIO_Port, &GPIO_InitStruct);
 
+  /*Configure GPIO pins : PD8 EXTI Init */
+  GPIO_InitStruct.Pin = TAP_INT_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(TAP_INT_GPIO_Port, &GPIO_InitStruct);
+
+  // in MX_GPIO_Init() after HAL_GPIO_Init(...)
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+
+
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    if (GPIO_Pin == TAP_INT_Pin) {
+        // Read BMI323 INT status + FEATURE_EVENT_EXT here
+        // decide single vs double tap, then clear as needed
+    	g_tap_irq = 1;
+    }
+}
+
+
 
 /* USER CODE END 4 */
 
@@ -429,4 +475,3 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
-

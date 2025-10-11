@@ -8,6 +8,7 @@
 #define INC_BMI_323_H_
 
 #include "main.h"
+#include "gpio.h"
 #include "stm32wbxx_hal.h"
 
 
@@ -30,6 +31,16 @@
 #define FEATURE_IO2_REG 0x12
 #define FEATURE_IO_STATUS_REG 0x14
 #define FEATURE_CTRL_REG 0x40
+#define INT_MAP2 0x3B
+#define IO_INT_CTRL 0x38
+#define FEATURE_EVENT_EXT  0x47
+#define TAP_1 0x1E
+#define TAP_2 0x1F
+#define FEATURE_DATA_ADDR  0x41
+#define FEATURE_DATA_TX  0x42
+
+
+
 
 
 
@@ -67,7 +78,11 @@ typedef enum
 
 bmi323_StatusTypeDef bmi323_init(bmi323TypeDef* sensor);
 bmi323_StatusTypeDef bmi323_read_data(bmi323TypeDef* sensor);
+bmi323_StatusTypeDef BMI323_Feature_Engine_Enable(bmi323TypeDef* sensor);
 void bmi323_write_spi(bmi323TypeDef* sensor, uint8_t reg, uint8_t* data, uint16_t len);
+void bmi323_enable_tap(bmi323TypeDef* sensor);
+void BMI323_HandleTapEvent(bmi323TypeDef* sensor, uint32_t* haptic_deadline, uint8_t* haptic_active);
+
 
 
 
