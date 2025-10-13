@@ -125,13 +125,13 @@ int main(void)
   feature_status = BMI323_Feature_Engine_Enable(&imu_sensor);          // write IO2=0x012C, IO_STATUS=0x0001,
 
   uint8_t gyr[2];
-  gyr[0] = (0<<7) | (0x4<<4) | 0x8;   // 0x28: BW=0, RANGE=±2000, ODR=100 Hz
+  gyr[0] = (0<<7) | (0x4<<4) | 0xA;   // 0x28: BW=0, RANGE=±2000, ODR=100 Hz
   gyr[1] = 0x40;                       // mode = 0b100 (enabled)
   bmi323_write_spi(&imu_sensor, REG_GYR_CONF_BMI323, gyr, 2);
   HAL_Delay(10);
 
   uint8_t acc[2];
-  acc[0] = (0<<7) | (0x2<<4) | 0x9;  // BW=0, ±8g, ODR=200 Hz
+  acc[0] = (0<<7) | (0x2<<4) | 0xA;  // BW=0, ±8g, ODR=200 Hz
   acc[1] = 0x40;                      // normal/enable
   bmi323_write_spi(&imu_sensor, REG_ACC_CONF_BMI323, acc, 2);
   HAL_Delay(10);
