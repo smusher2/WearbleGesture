@@ -61,6 +61,41 @@ static void bmi323_receive_spi(bmi323TypeDef* sensor, uint8_t offset_reg, uint8_
 
 }
 
+static void feature_wait_ready(bmi323TypeDef* sensor, uint32_t to_ms)
+{
+    uint32_t t0 = HAL_GetTick();
+    for (;;) {
+        uint8_t st = 0;
+        bmi323_receive_spi(sensor, FEATURE_DATA_STATUS, &st, 1);
+        if ((st & 0x02)) return;      // BUSY=0 → ready
+        if ((HAL_GetTick() - t0) >= to_ms) return;
+    }
+}
+
+static void feature_write_word(bmi323TypeDef* sensor, uint8_t feat_addr, uint8_t* val)
+{
+    uint8_t addr = feat_addr;
+    bmi323_write_spi(sensor, FEATURE_DATA_ADDR, &addr, 1);
+    feature_wait_ready(sensor, 10);
+
+    bmi323_write_spi(sensor, FEATURE_DATA_TX, val, 2);
+    feature_wait_ready(sensor, 10);
+
+    // Optional: poll FEATURE_DATA_STATUS for not-busy here
+}
+
+static void feature_read_word(bmi323TypeDef* sensor, uint8_t feat_addr, uint8_t* val)
+{
+    uint8_t addr = feat_addr;
+    bmi323_write_spi(sensor, FEATURE_DATA_ADDR, &addr, 1);
+    feature_wait_ready(sensor, 5);
+
+    bmi323_receive_spi(sensor, FEATURE_DATA_TX, val, 2);
+    feature_wait_ready(sensor, 5);
+
+}
+
+
 void bmi323_enable_tap(bmi323TypeDef* sensor)
 {
 
@@ -95,27 +130,31 @@ void bmi323_enable_tap(bmi323TypeDef* sensor)
 	uint8_t tap1_addr = TAP_1;
 	uint8_t tap2_addr = TAP_2;
 
-		/*
-	bmi323_write_spi(sensor, FEATURE_DATA_ADDR, &tap1_addr, 1);
-	uint8_t mode1[2] = {0};
-	bmi323_receive_spi(sensor, FEATURE_DATA_TX, mode1, 2);
-	mode1[0] = (uint8_t)((mode1[0] & ~(0x3u << 6)) | (0x2u << 6));
-	bmi323_write_spi(sensor, FEATURE_DATA_TX, mode1, 2);
 
-	bmi323_write_spi(sensor, FEATURE_DATA_ADDR, &tap2_addr, 1);
+	uint8_t mode1[2] = {0};
 	uint8_t mode2[2] = {0};
-	bmi323_receive_spi(sensor, FEATURE_DATA_TX, mode2, 2);
+	feature_read_word(sensor, tap1_addr, mode1);
+	mode1[0] = (uint8_t)((mode1[0] & ~(0x3u << 6)) | (0x2u << 6));
+	feature_write_word(sensor, tap1_addr, mode1);
+
+	feature_read_word(sensor, tap2_addr, mode2);
 	mode2[0] = (uint8_t)(mode2[0] | (0xFFu));
 	mode2[1] = (uint8_t)(mode2[1] | (0x3u));
-	bmi323_write_spi(sensor, FEATURE_DATA_TX, mode2, 2);
-	bmi323_receive_spi(sensor, FEATURE_DATA_TX, mode2, 2);
-*/
-	//snprintf(msg, sizeof(msg), "reg read: 0x%02X 0x%02X \r\n", mode2[1], mode2[0]);
-	//HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
+	feature_write_word(sensor, tap2_addr, mode2);
+	HAL_Delay(20);
+	feature_read_word(sensor, tap2_addr, mode2);
+
+
+	snprintf(msg, sizeof(msg), "reg read: 0x%02X 0x%02X \r\n", mode2[1], mode2[0]);
+	HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
 
 	uint8_t dummy[2];
 	bmi323_receive_spi(sensor, FEATURE_IO_STATUS_REG, dummy, 2); // read to clear
 }
+
+
+// Assumes: FEATURE_DATA_ADDR=0x41, FEATURE_DATA_TX=0x42, FEATURE_DATA_STATUS=0x43
+
 
 bmi323_StatusTypeDef bmi323_init(bmi323TypeDef* sensor)
 {
@@ -197,16 +236,6 @@ bmi323_StatusTypeDef bmi323_read_data(bmi323TypeDef* sensor)
 	sensor->imu_data.gy = (temp_data[9] << 8) | temp_data[8];
 	sensor->imu_data.gz = (temp_data[11] << 8) | temp_data[10];
 
-/*
- *
- * 	char msg[200];
-	snprintf(msg, sizeof(msg),
-	         "DATA: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\r\n",
-	         temp_data[0], temp_data[1], temp_data[2], temp_data[3],
-	         temp_data[4], temp_data[5], temp_data[6], temp_data[7],
-	         temp_data[8], temp_data[9], temp_data[10], temp_data[11]);
-	HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
- */
 
 
 	return BMI323_OK;

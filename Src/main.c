@@ -171,12 +171,12 @@ int main(void)
 
 
 
-	  	      char msg1[200];
+	  	      //char msg1[200];
 
-	  	 	  snprintf(msg1, sizeof(msg1), "AX: %.3f, AY: %.3f, AZ: %.3f, GX: %.3f, GY: %.3f, GZ: %.3f \r\n", ax_m, ay_m, az_m, gx_m, gy_m, gz_m);
+	  	 	  //snprintf(msg1, sizeof(msg1), "AX: %.3f, AY: %.3f, AZ: %.3f, GX: %.3f, GY: %.3f, GZ: %.3f \r\n", ax_m, ay_m, az_m, gx_m, gy_m, gz_m);
 
 	  	 	    // 3. Transmit over UART (blocking mode)
-	  	 	  HAL_UART_Transmit(&huart1, (uint8_t*)msg1, strlen(msg1), HAL_MAX_DELAY);
+	  	 	  //HAL_UART_Transmit(&huart1, (uint8_t*)msg1, strlen(msg1), HAL_MAX_DELAY);
 
 
 	  	   	  HAL_Delay(10);

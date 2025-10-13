@@ -38,7 +38,7 @@
 #define TAP_2 0x1F
 #define FEATURE_DATA_ADDR  0x41
 #define FEATURE_DATA_TX  0x42
-
+#define FEATURE_DATA_STATUS 0x43
 
 
 
