@@ -122,6 +122,23 @@ void Error_Handler(void);
 #define RST_DISP_Pin GPIO_PIN_8
 #define RST_DISP_GPIO_Port GPIOC
 
+
+#define BLED_PIN_Pin GPIO_PIN_8
+#define BLED_PIN_GPIO_Port GPIOB
+#define GLED_PIN_Pin GPIO_PIN_4
+#define GLED_PIN_GPIO_Port GPIOB
+#define GPIO_CS_Pin GPIO_PIN_0
+#define GPIO_CS_GPIO_Port GPIOD
+#define RLED_PIN_Pin GPIO_PIN_13
+#define RLED_PIN_GPIO_Port GPIOB
+#define HAPTIC_PIN_Pin GPIO_PIN_8
+#define HAPTIC_PIN_GPIO_Port GPIOA
+#define SPI2_CS_Pin GPIO_PIN_0
+#define SPI2_CS_GPIO_Port GPIOD
+
+#define SPI2_SCK_Pin GPIO_PIN_1
+#define SPI2_SCK_GPIO_Port GPIOD
+
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */
