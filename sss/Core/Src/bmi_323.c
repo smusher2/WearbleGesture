@@ -394,15 +394,15 @@ void BMI323_HandleTapEvent(bmi323TypeDef* sensor, uint32_t* haptic_deadline, uin
     extern UART_HandleTypeDef huart1;
 
     // Quick motion gate: if it's a shake burst, ignore the tap event.
-    if (bmi323_is_shaking(sensor)) {
-        const char* m = "Tap ignored (shake detected)\r\n";
-        HAL_UART_Transmit(&huart1, (uint8_t*)m, strlen(m), HAL_MAX_DELAY);
-
-        // Still read/clear the latched event
-        uint8_t dump[2];
-        bmi323_receive_spi(sensor, FEATURE_EVENT_EXT, dump, 2);
-        return;
-    }
+//    if (bmi323_is_shaking(sensor)) {
+//        const char* m = "Tap ignored (shake detected)\r\n";
+//        HAL_UART_Transmit(&huart1, (uint8_t*)m, strlen(m), HAL_MAX_DELAY);
+//
+//        // Still read/clear the latched event
+//        uint8_t dump[2];
+//        bmi323_receive_spi(sensor, FEATURE_EVENT_EXT, dump, 2);
+//        return;
+//    }
 
     // Normal event handling
     uint8_t tap_evt[2] = {0};
