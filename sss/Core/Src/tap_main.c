@@ -182,7 +182,7 @@ int main(void)
 
 	  	 	    // 3. Transmit over UART (blocking mode)
 	  	  HAL_UART_Transmit(&huart1, (uint8_t*)msg1, strlen(msg1), HAL_MAX_DELAY);
-	  	  ts_ms += 30;     // matches HAL_Delay(10) just below
+	  	  ts_ms += 50;     // matches HAL_Delay(10) just below
 	  	  HAL_Delay(10);
 
 
