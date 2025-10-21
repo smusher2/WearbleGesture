@@ -36,6 +36,7 @@
 #define FEATURE_EVENT_EXT  0x47
 #define TAP_1 0x1E
 #define TAP_2 0x1F
+#define TAP_3                   0x20
 #define FEATURE_DATA_ADDR  0x41
 #define FEATURE_DATA_TX  0x42
 #define FEATURE_DATA_STATUS 0x43
@@ -86,10 +87,10 @@ bmi323_StatusTypeDef bmi323_read_data(bmi323TypeDef* sensor);
 bmi323_StatusTypeDef BMI323_Feature_Engine_Enable(bmi323TypeDef* sensor);
 void bmi323_write_spi(bmi323TypeDef* sensor, uint8_t reg, uint8_t* data, uint16_t len);
 void bmi323_enable_tap(bmi323TypeDef* sensor);
-void BMI323_HandleTapEvent(bmi323TypeDef* sensor, uint32_t* haptic_deadline, uint8_t* haptic_active);
+
+const char* BMI323_HandleTapEvent(bmi323TypeDef* sensor, uint32_t* haptic_deadline, uint8_t* haptic_active);
 
 uint16_t bmi323_read_feature_u16(bmi323TypeDef* s, uint16_t addr11);
-void     bmi323_set_double_tap_window_ms(bmi323TypeDef* s, uint16_t window_ms);
 void     bmi323_reduce_shake_false_taps(bmi323TypeDef* s);
 void bmi323_reduce_shake_keep_single(bmi323TypeDef* s);
 
