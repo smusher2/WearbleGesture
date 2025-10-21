@@ -1,0 +1,17 @@
+../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_rcc.h:1679:22:LL_RCC_LSE_SetDriveCapability	1
+../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_bus.h:364:22:LL_AHB1_GRP1_EnableClock	1
+../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_bus.h:539:22:LL_AHB2_GRP1_EnableClock	1
+../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_rtc.h:1012:22:LL_RTC_EnableWriteProtection	1
+../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_rtc.h:1023:22:LL_RTC_DisableWriteProtection	1
+../../Drivers/STM32WBxx_HAL_Driver/Inc/stm32wbxx_ll_rtc.h:2927:22:LL_RTC_WAKEUP_SetClock	1
+/Users/libbyglieden/STM32CubeIDE/workspace_1.19.0/BLE_p2pServer/Core/Src/main.c:77:5:main	1
+/Users/libbyglieden/STM32CubeIDE/workspace_1.19.0/BLE_p2pServer/Core/Src/main.c:135:6:SystemClock_Config	3
+/Users/libbyglieden/STM32CubeIDE/workspace_1.19.0/BLE_p2pServer/Core/Src/main.c:186:6:PeriphCommonClock_Config	2
+/Users/libbyglieden/STM32CubeIDE/workspace_1.19.0/BLE_p2pServer/Core/Src/main.c:224:13:MX_IPCC_Init	2
+/Users/libbyglieden/STM32CubeIDE/workspace_1.19.0/BLE_p2pServer/Core/Src/main.c:250:13:MX_RF_Init	1
+/Users/libbyglieden/STM32CubeIDE/workspace_1.19.0/BLE_p2pServer/Core/Src/main.c:271:13:MX_RTC_Init	2
+/Users/libbyglieden/STM32CubeIDE/workspace_1.19.0/BLE_p2pServer/Core/Src/main.c:313:6:MX_USART1_UART_Init	5
+/Users/libbyglieden/STM32CubeIDE/workspace_1.19.0/BLE_p2pServer/Core/Src/main.c:359:13:MX_DMA_Init	1
+/Users/libbyglieden/STM32CubeIDE/workspace_1.19.0/BLE_p2pServer/Core/Src/main.c:378:13:MX_GPIO_Init	1
+/Users/libbyglieden/STM32CubeIDE/workspace_1.19.0/BLE_p2pServer/Core/Src/main.c:625:6:PeriphClock_Config	1
+/Users/libbyglieden/STM32CubeIDE/workspace_1.19.0/BLE_p2pServer/Core/Src/main.c:679:6:Error_Handler	1
