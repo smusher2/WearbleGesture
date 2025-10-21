@@ -1,13 +1,13 @@
 /* USER CODE BEGIN Header */
 /**
-  ***************************************************************************************
+  ******************************************************************************
   * @file    stm32_lpm_if.c
   * @author  MCD Application Team
   * @brief   Low layer function to enter/exit low power modes (stop, sleep).
-  ***************************************************************************************
+  ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2025 STMicroelectronics.
+  * Copyright (c) 2019-2021 STMicroelectronics.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -309,7 +309,12 @@ static void ExitLowPower(void)
   {
 /* Restore the clock configuration of the application in this user section */
 /* USER CODE BEGIN ExitLowPower_1 */
-
+    LL_RCC_HSE_Enable( );
+    __HAL_FLASH_SET_LATENCY(FLASH_LATENCY_1);
+    while(__HAL_FLASH_GET_LATENCY() != FLASH_LATENCY_1);
+    while(!LL_RCC_HSE_IsReady( ));
+    LL_RCC_SetSysClkSource(LL_RCC_SYS_CLKSOURCE_HSE);
+    while (LL_RCC_GetSysClkSource( ) != LL_RCC_SYS_CLKSOURCE_STATUS_HSE);
 /* USER CODE END ExitLowPower_1 */
   }
   else

@@ -7,7 +7,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2025 STMicroelectronics.
+  * Copyright (c) 2021 STMicroelectronics.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -30,7 +30,10 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "stm32wb5mm_dk.h"
+#include "stm32wb5mm_dk_bus.h"
+#include "stm32wb5mm_dk_lcd.h"
+#include "stm32_lcd.h"
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
@@ -61,7 +64,9 @@ void Init_Exti(void);
 void Init_Smps(void);
 
 /* USER CODE BEGIN EF */
-
+  void LED_Deinit(void);
+  void LED_On(aPwmLedGsData_TypeDef aPwmLedGsData);
+  void LED_Off(void);
 /* USER CODE END EF */
 
 #ifdef __cplusplus
