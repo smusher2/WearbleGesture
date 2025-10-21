@@ -1,15 +1,12 @@
-/* USER CODE BEGIN Header */
-/**
-  ******************************************************************************
-  * @file           : bmi_323.c
-  * @brief          : BMI323 driver (SPI + feature engine + tap)
-  ******************************************************************************
-  * @attention
-  * Copyright (c) 2025.
-  * This software is provided AS-IS.
-  ******************************************************************************
-  */
-/* USER CODE END Header */
+/* =========================================================================
+ *  bmi_323.c  —  BMI323 driver (SPI + feature engine + tap)  [tunable]
+ *  - SPI helpers
+ *  - Feature-engine mailbox (read/write words)
+ *  - Init / read raw data
+ *  - Tap configuration with ALL knobs at the top
+ *  - Optional "shake gate" to ignore arm-pump false taps
+ *  - Tap IRQ handler that prints "Single Tap"/"Double Tap"
+ * ========================================================================= */
 
 #include "main.h"
 #include "bmi_323.h"
@@ -17,12 +14,69 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-/* ====================== Feature engine status bits ====================== */
-#define FEATURE_DATA_ADDR     0x41
-#define FEATURE_DATA_TX       0x42
-#define FEATURE_DATA_STATUS   0x43
-/* datasheet: bit1 == data_tx_ready (1 = ready) */
-#define FE_ST_TX_READY        0x02u
+/* =========================== TUNING KNOBS ============================== */
+/* --- Tap enable switches (FEATURE_IO0) --- */
+#define TAP_ENABLE_SINGLE             1   /* 1=enable single tap */
+#define TAP_ENABLE_DOUBLE             1   /* 1=enable double tap */
+#define TAP_ENABLE_TRIPLE             0   /* 1=enable triple tap (if used) */
+
+/* --- TAP_1 fields --- */
+#define TAP1_MODE                     2   /* 0=basic, 1=balanced, 2=robust */
+#define TAP1_MAX_PEAKS_FOR_TAP        3   /* 0..7 (datasheet default 6). 2–3 resists shake */
+
+/* --- TAP_2 fields --- */
+#define TAP2_THRESH_SCALE_X100        100 /* scale current threshold by % (200=2x, 300=3x) */
+#define TAP2_MAX_GESTURE_DUR_MS       350 /* double-tap window in ms (40 ms/LSB; clamp 0..2520) */
+
+
+#define TAP3_MAX_DUR_BETWEEN_PEAKS    2   /* default 4 → try 2 (narrow single tap impulse) */
+#define TAP3_TAP_SHOCK_SETTLING_DUR   9   /* default 6 → 8–10 (ignore post-shock ringing)  */
+#define TAP3_MIN_QUIET_BETWEEN_TAPS   12  /* default 8 → 10–12 (require quiet)            */
+#define TAP3_QUIET_TIME_AFTER_GESTURE 10  /* default 6 → 8–10 (cooldown)                   */
+
+/* --- Optional: make single/double stricter at runtime without changing T2 ---
+ * If arm pumps still false-trigger, try increasing scale to 300 and/or
+ * reducing TAP2_MAX_GESTURE_DUR_MS to ~180.
+ */
+
+
+/* --- Gyro gate (alternative to accel span) --- */
+#define GYRO_GATE_ENABLE              0
+#define GYRO_GATE_THRESH_SUM_DPS      350  /* ignore taps if |gx|+|gy|+|gz| > this */
+
+/* ====================== Feature engine/mailbox regs ===================== */
+/* These symbolic names are expected to be in bmi_323.h; kept here for clarity.
+ * If they’re already defined in your header, you can remove this block.
+ */
+#ifndef FEATURE_DATA_ADDR
+#define FEATURE_DATA_ADDR       0x41
+#define FEATURE_DATA_TX         0x42
+#define FEATURE_DATA_STATUS     0x43
+#endif
+#ifndef FE_ST_TX_READY
+#define FE_ST_TX_READY          0x02u  /* bit1 == data_tx_ready */
+#endif
+
+/* Datasheet “extended words” — TAP_1/TAP_2/TAP_3 addresses.
+ * Your bmi_323.h likely defines these; keep if not.
+ */
+#ifndef TAP_1
+#define TAP_1                   0x1E
+#define TAP_2                   0x1F
+#define TAP_3                   0x20
+#endif
+
+/* Other BMI323 regs expected from your header:
+ *   REG_CHIP_ID_BMI323, CHIP_ID_BMI323, REG_ERR, REG_SENSOR_STATUS
+ *   REG_ACC_DATA_X (burst reads AX..GZ)
+ *   FEATURE_IO0_REG, FEATURE_IO1_REG, FEATURE_IO2_REG, FEATURE_IO_STATUS_REG
+ *   FEATURE_CTRL_REG, FEATURE_EVENT_EXT
+ *   INT_MAP2, IO_INT_CTRL
+ *   REG_GYR_CONF_BMI323, REG_ACC_CONF_BMI323  (used by your main.c)
+ */
+
+/* ========================= Externals & typedefs ======================== */
+extern UART_HandleTypeDef huart1;
 
 /* ========================= Local prototypes ============================ */
 static void     bmi323_activate_spi(bmi323TypeDef* s);
@@ -34,7 +88,13 @@ static void     fe_set_addr(bmi323TypeDef* s, uint16_t addr11);
 static void     feature_write_word(bmi323TypeDef* s, uint16_t addr, const uint8_t *val);
 static void     feature_read_word (bmi323TypeDef* s, uint16_t addr, uint8_t *out);
 
+static void     tap_write_TAP3(bmi323TypeDef* s,
+                               uint8_t quite_after, uint8_t min_quiet_between,
+                               uint8_t settle, uint8_t max_pk_gap);
+static void     apply_tap_profile_from_knobs(bmi323TypeDef* s);
 static void     debug_feature_engine_status(bmi323TypeDef* s);
+
+
 
 /* ========================= SPI helpers ================================= */
 static void bmi323_activate_spi(bmi323TypeDef* s)
@@ -95,24 +155,21 @@ static void feature_write_word(bmi323TypeDef* s, uint16_t addr, const uint8_t *v
 {
     if (!val) return;
     fe_wait_ready(s, 10);                       /* safe to poll before */
-    fe_set_addr(s, addr);                       /* 1) set which word */
-    bmi323_write_spi(s, FEATURE_DATA_TX, (uint8_t*)val, 2); /* 2) write LSB,MSB */
-    /* transfer complete */
+    fe_set_addr(s, addr);                       /* 1) set which word   */
+    bmi323_write_spi(s, FEATURE_DATA_TX, (uint8_t*)val, 2); /* 2) LSB,MSB */
 }
 
 static void feature_read_word(bmi323TypeDef* s, uint16_t addr, uint8_t *out)
 {
     if (!out) return;
     fe_wait_ready(s, 10);                       /* safe to poll before */
-    fe_set_addr(s, addr);                       /* 1) set which word */
-    bmi323_receive_spi(s, FEATURE_DATA_TX, out, 2); /* 2) read LSB,MSB */
-    /* transfer complete */
+    fe_set_addr(s, addr);                       /* 1) set which word   */
+    bmi323_receive_spi(s, FEATURE_DATA_TX, out, 2); /* 2) LSB,MSB */
 }
 
 /* ========================= Debug helper ================================ */
 static void debug_feature_engine_status(bmi323TypeDef* s)
 {
-    extern UART_HandleTypeDef huart1;
     char msg[96];
     uint8_t io1[2] = {0}, fctrl[2] = {0}, st = 0;
 
@@ -130,7 +187,6 @@ static void debug_feature_engine_status(bmi323TypeDef* s)
 
 bmi323_StatusTypeDef bmi323_init(bmi323TypeDef* s)
 {
-    extern UART_HandleTypeDef huart1;
     uint8_t v = 0;
     char msg[64];
 
@@ -204,77 +260,102 @@ bmi323_StatusTypeDef BMI323_Feature_Engine_Enable(bmi323TypeDef* s)
     return BMI323_CONFIG_FILE_ERROR;
 }
 
-
-void bmi323_reduce_shake_false_taps(bmi323TypeDef* s)
+/* Programmable: set only the double-tap window (TAP_2[15:10] = 40 ms/LSB). */
+static void bmi323_set_double_tap_window_ms(bmi323TypeDef* s, uint16_t window_ms)
 {
-    extern UART_HandleTypeDef huart1;
-    char msg[128];
-
-    /* 1) Force Robust mode: TAP_1.mode = 0b10 (bits [7:6]) */
-    uint8_t t1[2] = {0};
-    feature_read_word(s, TAP_1, t1);
-    t1[0] = (uint8_t)((t1[0] & ~(0x3u << 6)) | (0x2u << 6));
-    feature_write_word(s, TAP_1, t1);
-
-    /* 2) Disable single-tap, keep double-tap enabled (FEATURE_IO0 MSB bits 4/5) */
-    uint8_t io0[2] = {0};
-    bmi323_receive_spi(s, FEATURE_IO0_REG, io0, 2);
-    io0[1] &= ~(1u << 4);  /* single tap OFF */
-    io0[1] |=  (1u << 5);  /* double tap ON  */
-    bmi323_write_spi(s, FEATURE_IO0_REG, io0, 2);
-
-    /* 3) Raise TAP_2 peak threshold (bits [9:0]) by +50% to ignore low-g shakes */
-    uint8_t t2b[2] = {0};
-    feature_read_word(s, TAP_2, t2b);
-    uint16_t t2 = (uint16_t)((t2b[1] << 8) | t2b[0]);
-    uint16_t th = (uint16_t)(t2 & 0x03FFu);                /* current threshold */
-    uint16_t new_th = (uint16_t)(th + th/2);               /* +50% */
-    if (new_th > 0x03FFu) new_th = 0x03FFu;                /* clamp to 10 bits */
-    t2 = (uint16_t)((t2 & ~0x03FFu) | new_th);
-    t2b[0] = (uint8_t)(t2 & 0xFF);
-    t2b[1] = (uint8_t)(t2 >> 8);
-    feature_write_word(s, TAP_2, t2b);
-
-    /* 4) Read-back & print summary (also shows current double-tap window) */
-    feature_read_word(s, TAP_2, t2b);
-    t2 = (uint16_t)((t2b[1] << 8) | t2b[0]);
-    th = (uint16_t)(t2 & 0x03FFu);
-    uint8_t dur_code = (uint8_t)((t2 >> 10) & 0x3F);       /* 40 ms / LSB */
-    uint16_t dur_ms = (uint16_t)(dur_code * 40);
-
-    snprintf(msg, sizeof(msg),
-             "Anti-shake: singleTap=OFF, doubleTap=ON, TAP2.thr=%u (0x%03X), window~%u ms\r\n",
-             th, th, dur_ms);
-    HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
-}
-
-// Sets double-tap window (EXT.TAP_2.max_gesture_dur bits [15:10]) in ms.
-// Quantized at 40 ms/LSB; the value is floored (e.g., 350 → 320 ms).
-void bmi323_set_double_tap_window_ms(bmi323TypeDef* s, uint16_t window_ms)
-{
-    // 1) Read TAP_2 (LSB first)
     uint8_t t2[2] = {0};
     feature_read_word(s, TAP_2, t2);
 
-    // 2) Update duration field (bits [15:10]) and keep threshold bits [9:0]
     uint16_t t2u = (uint16_t)((t2[1] << 8) | t2[0]);
     uint8_t  dur = (uint8_t)(window_ms / 40u);   // 40 ms per LSB
-    if (dur > 63u) dur = 63u;                    // 6-bit field
+    if (dur > 63u) dur = 63u;
     t2u = (uint16_t)((t2u & 0x03FFu) | ((uint16_t)dur << 10));
 
-    // 3) Write back (LSB first)
     t2[0] = (uint8_t)(t2u & 0xFFu);
     t2[1] = (uint8_t)(t2u >> 8);
     feature_write_word(s, TAP_2, t2);
 }
 
+/* Write TAP_3 from four nibbles. */
+static void tap_write_TAP3(bmi323TypeDef* s, uint8_t quite_after,
+                           uint8_t min_quiet_between, uint8_t settle, uint8_t max_pk_gap)
+{
+    if (quite_after       > 15) quite_after = 15;
+    if (min_quiet_between > 15) min_quiet_between = 15;
+    if (settle            > 15) settle = 15;
+    if (max_pk_gap        > 15) max_pk_gap = 15;
 
+    uint16_t v = ((uint16_t)quite_after << 12) |
+                 ((uint16_t)min_quiet_between << 8) |
+                 ((uint16_t)settle << 4) |
+                 ((uint16_t)max_pk_gap);
+    uint8_t b[2] = { (uint8_t)(v & 0xFF), (uint8_t)(v >> 8) };
+    feature_write_word(s, TAP_3, b);
+}
+
+/* Apply all tap fields based on the top-of-file knobs */
+static void apply_tap_profile_from_knobs(bmi323TypeDef* s)
+{
+    char msg[160];
+
+    /* --- TAP_1: mode + max_peaks_for_tap --- */
+    uint8_t t1[2] = {0};
+    feature_read_word(s, TAP_1, t1);
+    /* mode bits [7:6] */
+    t1[0] = (uint8_t)((t1[0] & ~(0x3u<<6)) | ((TAP1_MODE & 0x3u) << 6));
+    /* max_peaks_for_tap bits [5:3] */
+    t1[0] = (uint8_t)((t1[0] & ~(0x7u<<3)) | ((TAP1_MAX_PEAKS_FOR_TAP & 0x7u) << 3));
+    feature_write_word(s, TAP_1, t1);
+
+    /* --- TAP_2: scale threshold + set double-tap window --- */
+    uint8_t t2b[2] = {0};
+    feature_read_word(s, TAP_2, t2b);
+    uint16_t t2 = (uint16_t)((t2b[1] << 8) | t2b[0]);
+
+    uint16_t thr = (uint16_t)(t2 & 0x03FFu); /* lower 10 bits */
+    uint32_t scaled = (uint32_t)thr * (uint32_t)TAP2_THRESH_SCALE_X100 / 100u;
+    if (scaled > 0x03FFu) scaled = 0x03FFu;
+    t2 = (uint16_t)((t2 & ~0x03FFu) | (uint16_t)scaled);
+    t2b[0] = (uint8_t)(t2 & 0xFF);
+    t2b[1] = (uint8_t)(t2 >> 8);
+    feature_write_word(s, TAP_2, t2b);
+
+    bmi323_set_double_tap_window_ms(s, TAP2_MAX_GESTURE_DUR_MS);
+
+    /* --- TAP_3: pulse shape + quiet requirements --- */
+    tap_write_TAP3(s,
+        TAP3_QUIET_TIME_AFTER_GESTURE,
+        TAP3_MIN_QUIET_BETWEEN_TAPS,
+        TAP3_TAP_SHOCK_SETTLING_DUR,
+        TAP3_MAX_DUR_BETWEEN_PEAKS
+    );
+
+    /* --- FEATURE_IO0: enable single/double/triple bits (MSB: bit4=single, bit5=double) --- */
+    uint8_t io0[2] = {0};
+    bmi323_receive_spi(s, FEATURE_IO0_REG, io0, 2);
+    if (TAP_ENABLE_SINGLE) io0[1] |=  (1u<<4); else io0[1] &= ~(1u<<4);
+    if (TAP_ENABLE_DOUBLE) io0[1] |=  (1u<<5); else io0[1] &= ~(1u<<5);
+    if (TAP_ENABLE_TRIPLE) io0[1] |=  (1u<<6); else io0[1] &= ~(1u<<6);
+    bmi323_write_spi(s, FEATURE_IO0_REG, io0, 2);
+
+    /* --- Print summary --- */
+    uint8_t t3b[2] = {0}; feature_read_word(s, TAP_3, t3b);
+    feature_read_word(s, TAP_2, t2b);
+    t2 = (uint16_t)((t2b[1] << 8) | t2b[0]);
+    uint16_t thr_out = (uint16_t)(t2 & 0x03FFu);
+    uint8_t  dur_out = (uint8_t)((t2 >> 10) & 0x3Fu);
+    uint16_t win_ms  = (uint16_t)(dur_out * 40u);
+
+    snprintf(msg, sizeof(msg),
+        "TapCfg: T1=%02X%02X T2=%02X%02X(thr=%u) T3=%02X%02X win=%ums IO0.MSB=0x%02X\r\n",
+        t1[1], t1[0], t2b[1], t2b[0], thr_out, t3b[1], t3b[0], win_ms, io0[1]);
+    HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
+}
+
+/* =========== Public entry: enable and tune the tap detector =========== */
 void bmi323_enable_tap(bmi323TypeDef* s)
 {
-    extern UART_HandleTypeDef huart1;
-    char buf[128];
-
-    /* 1) Keep feature engine enabled */
+    /* Ensure feature engine is on */
     {
         uint8_t fctrl[2] = {0};
         bmi323_receive_spi(s, FEATURE_CTRL_REG, fctrl, 2);
@@ -282,19 +363,11 @@ void bmi323_enable_tap(bmi323TypeDef* s)
         bmi323_write_spi(s, FEATURE_CTRL_REG, fctrl, 2);
     }
 
-    /* 2) Enable TAP events in FEATURE_IO0 (we’ll later disable single-tap in anti-shake) */
-    {
-        uint8_t io0[2] = {0};
-        bmi323_receive_spi(s, FEATURE_IO0_REG, io0, 2);
-        io0[1] |= (1u<<4) | (1u<<5);                  // single + double tap enable for now
-        bmi323_write_spi(s, FEATURE_IO0_REG, io0, 2);
-    }
-
-    /* 3) Map to INT1 via INT_MAP2, push-pull, active-high */
+    /* Map tap to INT1 via INT_MAP2; set INT1 push-pull, active-high */
     {
         uint8_t map2[2] = {0};
         bmi323_receive_spi(s, INT_MAP2, map2, 2);
-        map2[0] = (uint8_t)((map2[0] & ~0x03u) | 0x01u);
+        map2[0] = (uint8_t)((map2[0] & ~0x03u) | 0x01u);  /* route tap to INT1 */
         bmi323_write_spi(s, INT_MAP2, map2, 2);
 
         uint8_t io[2] = {0};
@@ -305,163 +378,43 @@ void bmi323_enable_tap(bmi323TypeDef* s)
         bmi323_write_spi(s, IO_INT_CTRL, io, 2);
     }
 
-    /* 4) (Optional) print defaults once */
-    {
-        uint8_t t1[2]={0}, t2[2]={0}, t3[2]={0};
-        feature_read_word(s, TAP_1, t1);
-        feature_read_word(s, TAP_2, t2);
-        feature_read_word(s, 0x20, t3);
-        snprintf(buf, sizeof(buf),
-                 "TAP defaults LSB: T1=%02X %02X  T2=%02X %02X  T3=%02X %02X\r\n",
-                 t1[0], t1[1], t2[0], t2[1], t3[0], t3[1]);
-        HAL_UART_Transmit(&huart1, (uint8_t*)buf, strlen(buf), HAL_MAX_DELAY);
-    }
+    /* Apply tuning from the top-of-file knobs */
+    apply_tap_profile_from_knobs(s);
 
-    /* 5) Do tap tuning INSIDE the driver (no need to touch main.c) */
-    // after mapping INTs and (optionally) setting your double-tap window:
-    bmi323_set_double_tap_window_ms(s, 350);   // optional, you already have this
-    bmi323_reduce_shake_keep_single(s);        // <-- use this one (keeps single ON)
-          // robust mode, singleTap OFF, raise threshold
-
-    // After your existing tap tuning in bmi323_enable_tap():
-    {
-        uint8_t t2b[2]; feature_read_word(s, TAP_2, t2b);
-        uint16_t t2 = (uint16_t)((t2b[1] << 8) | t2b[0]);
-        uint16_t thr = (uint16_t)(t2 & 0x00FFu);       // lower 10 bits = peak threshold
-        uint16_t new_thr = thr * 1u;                   // 2× (try 3× if still too sensitive)
-        if (new_thr > 0x03FFu) new_thr = 0x03FFu;
-        t2 = (uint16_t)((t2 & ~0x03FFu) | new_thr);
-        t2b[0] = (uint8_t)(t2 & 0xFF);
-        t2b[1] = (uint8_t)(t2 >> 8);
-        feature_write_word(s, TAP_2, t2b);
-    }
-
-    /* 6) Read-back & print final settings */
-    {
-        uint8_t t1[2]={0}, t2[2]={0};
-        feature_read_word(s, TAP_1, t1);
-        feature_read_word(s, TAP_2, t2);
-        uint16_t t2u = (uint16_t)((t2[1] << 8) | t2[0]);
-        uint8_t  dur_code = (uint8_t)((t2u >> 10) & 0x3F);
-        uint16_t dur_ms   = (uint16_t)(dur_code * 40);
-        snprintf(buf, sizeof(buf),
-                 "TAP1=%02X%02X TAP2=%02X%02X | window~%u ms\r\n",
-                 t1[1], t1[0], t2[1], t2[0], dur_ms);
-        HAL_UART_Transmit(&huart1, (uint8_t*)buf, strlen(buf), HAL_MAX_DELAY);
-    }
-
-    /* 7) Clear any latched feature status (optional) */
+    /* Clear any latched feature status (optional) */
     {
         uint8_t dummy[2];
         bmi323_receive_spi(s, FEATURE_IO_STATUS_REG, dummy, 2);
     }
 }
 
-// Return 1 if device is clearly "shaking" right now, else 0.
-// Samples N times over ~24 ms and looks at |ax|+|ay|+|az| span.
-// Assumes ±8 g (≈4096 LSB/g). Adjust SPAN_THRESH if you change range.
-static int bmi323_is_shaking(bmi323TypeDef* s)
+
+
+const char* BMI323_HandleTapEvent(bmi323TypeDef* sensor, uint32_t* haptic_deadline, uint8_t* haptic_active)
 {
-    const int N = 12;                 // ~24 ms @ 2 ms/sample
-    int32_t min_sum = INT32_MAX;
-    int32_t max_sum = INT32_MIN;
+    (void)haptic_deadline;
+    (void)haptic_active;
 
-    for (int i = 0; i < N; ++i) {
-        uint8_t b[6];
-        bmi323_receive_spi(s, REG_ACC_DATA_X, b, 6);
-        int16_t ax = (int16_t)((b[1] << 8) | b[0]);
-        int16_t ay = (int16_t)((b[3] << 8) | b[2]);
-        int16_t az = (int16_t)((b[5] << 8) | b[4]);
-
-        // L1 norm (cheap): |ax|+|ay|+|az|
-        int32_t sum = (ax < 0 ? -ax : ax) + (ay < 0 ? -ay : ay) + (az < 0 ? -az : az);
-        if (sum < min_sum) min_sum = sum;
-        if (sum > max_sum) max_sum = sum;
-
-        HAL_Delay(2);
+    // If you have the shake gate enabled, ignore and return NULL
+    #if SHAKE_GATE_ENABLE || GYRO_GATE_ENABLE
+    if (bmi323_is_shaking(sensor)) {
+        uint8_t dump[2];
+        bmi323_receive_spi(sensor, FEATURE_EVENT_EXT, dump, 2); /* clear latched */
+        return NULL;
     }
+    #endif
 
-    int32_t span = max_sum - min_sum;
-    // Heuristic: if span > ~0.8 g total across axes, call it a shake.
-    // With ±8g → 4096 LSB/g → 0.8 g ≈ 3277 LSB.
-    const int32_t SPAN_THRESH = 3200;
-    return (span > SPAN_THRESH) ? 1 : 0;
-}
-
-
-void BMI323_HandleTapEvent(bmi323TypeDef* sensor, uint32_t* haptic_deadline, uint8_t* haptic_active)
-{
-    extern UART_HandleTypeDef huart1;
-
-    // Quick motion gate: if it's a shake burst, ignore the tap event.
-//    if (bmi323_is_shaking(sensor)) {
-//        const char* m = "Tap ignored (shake detected)\r\n";
-//        HAL_UART_Transmit(&huart1, (uint8_t*)m, strlen(m), HAL_MAX_DELAY);
-//
-//        // Still read/clear the latched event
-//        uint8_t dump[2];
-//        bmi323_receive_spi(sensor, FEATURE_EVENT_EXT, dump, 2);
-//        return;
-//    }
-
-    // Normal event handling
     uint8_t tap_evt[2] = {0};
     bmi323_receive_spi(sensor, FEATURE_EVENT_EXT, tap_evt, 2); // [LSB, MSB]
-    if (tap_evt[0] & (1u<<4)) {
-        const char* s = "Double Tap\r\n";
-        HAL_UART_Transmit(&huart1, (uint8_t*)s, strlen(s), HAL_MAX_DELAY);
-        // TODO: trigger your haptic here if desired
+
+    if (tap_evt[0] & (1u<<5)) {
+        return "Triple Tap";
+    } else if (tap_evt[0] & (1u<<4)) {
+        return "Double Tap";
     } else if (tap_evt[0] & (1u<<3)) {
-        const char* s = "Single Tap\r\n";
-        HAL_UART_Transmit(&huart1, (uint8_t*)s, strlen(s), HAL_MAX_DELAY);
+        return "Single Tap";
     }
-}
 
-// Harden tap detection while KEEPING single-tap enabled.
-// - Forces Robust mode (TAP_1.mode = 0b10).
-// - Ensures single & double tap are both enabled in FEATURE_IO0.
-// - Raises the TAP_2 peak threshold (bits [9:0]) by +50% (tweakable).
-void bmi323_reduce_shake_keep_single(bmi323TypeDef* s)
-{
-    extern UART_HandleTypeDef huart1;
-    char msg[128];
-
-    /* 1) Robust mode */
-    uint8_t t1[2] = {0};
-    feature_read_word(s, TAP_1, t1);
-    t1[0] = (uint8_t)((t1[0] & ~(0x3u << 6)) | (0x2u << 6));  // mode=Robust
-    feature_write_word(s, TAP_1, t1);
-
-    /* 2) Make sure SINGLE and DOUBLE are both enabled */
-    uint8_t io0[2] = {0};
-    bmi323_receive_spi(s, FEATURE_IO0_REG, io0, 2);
-    io0[1] |= (1u << 4);  // single tap ON
-    io0[1] |= (1u << 5);  // double tap ON
-    bmi323_write_spi(s, FEATURE_IO0_REG, io0, 2);
-
-    /* 3) Raise TAP_2 peak threshold (lower 10 bits) to reduce shake hits */
-    uint8_t t2b[2] = {0};
-    feature_read_word(s, TAP_2, t2b);
-    uint16_t t2   = (uint16_t)((t2b[1] << 8) | t2b[0]);
-    uint16_t thr  = (uint16_t)(t2 & 0x03FFu);        // bits [9:0]
-    // +50% (change to *2 for more filtering): new_thr = thr + thr/2;
-    uint16_t new_thr = (uint16_t)(thr + thr/2);
-    if (new_thr > 0x03FFu) new_thr = 0x03FFu;        // clamp to 10 bits
-    t2 = (uint16_t)((t2 & ~0x03FFu) | new_thr);
-    t2b[0] = (uint8_t)(t2 & 0xFF);
-    t2b[1] = (uint8_t)(t2 >> 8);
-    feature_write_word(s, TAP_2, t2b);
-
-    /* 4) Read-back & print */
-    feature_read_word(s, TAP_2, t2b);
-    t2   = (uint16_t)((t2b[1] << 8) | t2b[0]);
-    thr  = (uint16_t)(t2 & 0x03FFu);
-    uint8_t dur_code = (uint8_t)((t2 >> 10) & 0x3F); // 40 ms/LSB
-    uint16_t dur_ms  = (uint16_t)(dur_code * 40);
-
-    snprintf(msg, sizeof(msg),
-             "Shake-harden (keep single): thr=%u (0x%03X), window~%u ms, IO0.MSB=0x%02X\r\n",
-             thr, thr, dur_ms, io0[1]);
-    HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
+    return NULL; // nothing recognized
 }
 
