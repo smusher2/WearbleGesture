@@ -56,28 +56,6 @@ static void MX_GPIO_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_USART1_UART_Init(void);
 
-//PRINTING HELPER
-static void pretty_label(const char *in, char *out, size_t outsz) {
-    if (!in || !out || outsz == 0) return;
-    size_t j = 0;
-    int new_word = 1;
-    for (size_t i = 0; in[i] && j + 1 < outsz; ++i) {
-        char c = in[i];
-        if (c == '_' || c == '-' || c == ' ') {          // word separator
-            if (j && out[j-1] != ' ') out[j++] = ' ';
-            new_word = 1;
-            continue;
-        }
-        if (new_word) {
-            if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
-            new_word = 0;
-        } else {
-            if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
-        }
-        out[j++] = c;
-    }
-    out[j] = '\0';
-}
 
 
 /* ==== UART helper ==== */
@@ -149,14 +127,12 @@ int main(void)
     uart_print("{ready}\r\n");
 
     /* Only print when gesture label changes or confidence band changes */
-    char last_label[32] = "";
-    int  last_conf = -1;
-    const int MIN_CONF = 50;       /* suppress low-confidence noise */
-    const uint32_t STEP_MS = 10;   /* pace ~100 Hz to match gyro ODR */
+    // remove last_label/last_conf/MIN_CONF logic entirely
+
+    const uint32_t STEP_MS = 10;
 
     while (1)
     {
-        /* ---- TAP EVENTS: handled here (main prints) ---- */
         if (g_tap_irq) {
             g_tap_irq = 0;
             const char* tap_label = BMI323_HandleTapEvent(&imu_sensor, &haptic_deadline, &haptic_active);
@@ -167,49 +143,24 @@ int main(void)
             }
         }
 
-        /* Optional: keep haptic buzz timing updated even without new taps */
         Haptic_Buzz_Check2STOP(&haptic_deadline, &haptic_active);
 
-        /* ---- CONTINUOUS GESTURE CLASSIFIER ---- */
         int16_t ax, ay, az, gx, gy, gz;
         read_one_sample_for_gesture(&ax, &ay, &az, &gx, &gy, &gz);
 
         gesture_event_t evt = gesture_process(ax, ay, az, gx, gy, gz);
-        /* evt.gesture: C-string label, evt.confidence: int (0..100) */
 
-        int should_print = 0;
-
-        /* 1) New label vs last label */
-        if (strcmp(evt.gesture, last_label) != 0) {
-            if (evt.confidence >= MIN_CONF) should_print = 1;
-            else {
-                /* If classifier cleared to "none"/"idle", still show it once */
-                if (last_label[0] != '\0' && evt.gesture[0] == '\0') should_print = 1;
-            }
-        }
-        /* 2) Same label but confidence changed band (every 10 points) */
-        else if (evt.confidence >= MIN_CONF && evt.confidence != last_conf) {
-            int prev_band = (last_conf < 0) ? -1 : (last_conf / 10);
-            int curr_band = evt.confidence / 10;
-            if (curr_band != prev_band) should_print = 1;
-        }
-
-        if (should_print) {
-            char pretty[64];
-            const char *raw = (evt.gesture[0] ? evt.gesture : "none");
-            pretty_label(raw, pretty, sizeof(pretty));
-            int n = snprintf(pretty, sizeof(pretty), "%s\r\n", pretty);  // reuse buffer for transmit
-            HAL_UART_Transmit(&huart1, (uint8_t*)pretty, (uint16_t)n, HAL_MAX_DELAY);
-
-            /* remember */
-            strncpy(last_label, evt.gesture, sizeof(last_label)-1);
-            last_label[sizeof(last_label)-1] = '\0';
-            last_conf = evt.confidence;
+        // PRINT on every accept (evt.gesture set & non-empty)
+        if (evt.gesture[0] != '\0' && strcmp(evt.gesture, "none") != 0 && evt.confidence >= 50) {
+            char line[48];
+            int n = snprintf(line, sizeof(line), "%s\r\n", evt.gesture);
+            HAL_UART_Transmit(&huart1, (uint8_t*)line, (uint16_t)n, HAL_MAX_DELAY);
         }
 
         HAL_Delay(STEP_MS);
     }
 }
+
 
 /* ===================== CubeMX init code (unchanged) ===================== */
 
