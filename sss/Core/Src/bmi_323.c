@@ -25,7 +25,7 @@
 #define TAP1_MAX_PEAKS_FOR_TAP        3   /* 0..7 (datasheet default 6). 2–3 resists shake */
 
 /* --- TAP_2 fields --- */
-#define TAP2_THRESH_SCALE_X100        100 /* scale current threshold by % (200=2x, 300=3x) */
+#define TAP2_THRESH_SCALE_X100        120 /* scale current threshold by % (200=2x, 300=3x) */
 #define TAP2_MAX_GESTURE_DUR_MS       350 /* double-tap window in ms (40 ms/LSB; clamp 0..2520) */
 
 
@@ -42,7 +42,7 @@
 
 /* --- Gyro gate (alternative to accel span) --- */
 #define GYRO_GATE_ENABLE              0
-#define GYRO_GATE_THRESH_SUM_DPS      350  /* ignore taps if |gx|+|gy|+|gz| > this */
+#define GYRO_GATE_THRESH_SUM_DPS      250  /* ignore taps if |gx|+|gy|+|gz| > this */
 
 /* ====================== Feature engine/mailbox regs ===================== */
 /* These symbolic names are expected to be in bmi_323.h; kept here for clarity.
@@ -396,14 +396,6 @@ const char* BMI323_HandleTapEvent(bmi323TypeDef* sensor, uint32_t* haptic_deadli
     (void)haptic_active;
 
     // If you have the shake gate enabled, ignore and return NULL
-    #if SHAKE_GATE_ENABLE || GYRO_GATE_ENABLE
-    if (bmi323_is_shaking(sensor)) {
-        uint8_t dump[2];
-        bmi323_receive_spi(sensor, FEATURE_EVENT_EXT, dump, 2); /* clear latched */
-        return NULL;
-    }
-    #endif
-
     uint8_t tap_evt[2] = {0};
     bmi323_receive_spi(sensor, FEATURE_EVENT_EXT, tap_evt, 2); // [LSB, MSB]
 
