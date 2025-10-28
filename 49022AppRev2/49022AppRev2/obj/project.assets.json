@@ -1,0 +1,175 @@
+{
+  "version": 3,
+  "targets": {
+    "net9.0-windows10.0.26100": {
+      "DeftSharp.Windows.Input/0.10.0": {
+        "type": "package",
+        "compile": {
+          "lib/net8.0-windows7.0/DeftSharp.Windows.Input.dll": {}
+        },
+        "runtime": {
+          "lib/net8.0-windows7.0/DeftSharp.Windows.Input.dll": {}
+        },
+        "frameworkReferences": [
+          "Microsoft.WindowsDesktop.App.WPF"
+        ]
+      },
+      "InTheHand.BluetoothLE/4.0.43": {
+        "type": "package",
+        "compile": {
+          "lib/net8.0-windows10.0.19041/InTheHand.BluetoothLE.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0-windows10.0.19041/InTheHand.BluetoothLE.dll": {
+            "related": ".xml"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "DeftSharp.Windows.Input/0.10.0": {
+      "sha512": "I5A9Q5ntDZRqo2VpY1hk9DyPitM8g9vi/tDmV4syTzHLRDlpf04HC9tFeKh3USSC1wmAigHQ1AaM10N7oZ8n9A==",
+      "type": "package",
+      "path": "deftsharp.windows.input/0.10.0",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "DeftSharp-icon.png",
+        "deftsharp.windows.input.0.10.0.nupkg.sha512",
+        "deftsharp.windows.input.nuspec",
+        "lib/net8.0-windows7.0/DeftSharp.Windows.Input.dll"
+      ]
+    },
+    "InTheHand.BluetoothLE/4.0.43": {
+      "sha512": "QrnzsPA2DPUPjDVENPKGSKRINHt3fLCS9X/ovgBesspvVArsfVENRc0bWsTHnxaFH6iuqnY8vrZeVfFkchILdA==",
+      "type": "package",
+      "path": "inthehand.bluetoothle/4.0.43",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "32feet-package-icon.png",
+        "README.md",
+        "inthehand.bluetoothle.4.0.43.nupkg.sha512",
+        "inthehand.bluetoothle.nuspec",
+        "lib/monoandroid10.0/InTheHand.BluetoothLE.dll",
+        "lib/monoandroid10.0/InTheHand.BluetoothLE.xml",
+        "lib/net8.0-android34.0/InTheHand.BluetoothLE.dll",
+        "lib/net8.0-android34.0/InTheHand.BluetoothLE.xml",
+        "lib/net8.0-ios18.0/InTheHand.BluetoothLE.dll",
+        "lib/net8.0-ios18.0/InTheHand.BluetoothLE.xml",
+        "lib/net8.0-maccatalyst18.0/InTheHand.BluetoothLE.dll",
+        "lib/net8.0-maccatalyst18.0/InTheHand.BluetoothLE.xml",
+        "lib/net8.0-windows10.0.19041/InTheHand.BluetoothLE.dll",
+        "lib/net8.0-windows10.0.19041/InTheHand.BluetoothLE.xml",
+        "lib/net8.0/InTheHand.BluetoothLE.dll",
+        "lib/net8.0/InTheHand.BluetoothLE.xml",
+        "lib/netstandard2.0/InTheHand.BluetoothLE.dll",
+        "lib/netstandard2.0/InTheHand.BluetoothLE.xml",
+        "lib/uap10.0.17763/InTheHand.BluetoothLE.dll",
+        "lib/uap10.0.17763/InTheHand.BluetoothLE.pri",
+        "lib/uap10.0.17763/InTheHand.BluetoothLE.xml",
+        "lib/xamarinios10/InTheHand.BluetoothLE.dll",
+        "lib/xamarinios10/InTheHand.BluetoothLE.xml",
+        "lib/xamarintvos10/InTheHand.BluetoothLE.dll",
+        "lib/xamarintvos10/InTheHand.BluetoothLE.xml",
+        "lib/xamarinwatchos10/InTheHand.BluetoothLE.dll",
+        "lib/xamarinwatchos10/InTheHand.BluetoothLE.xml"
+      ]
+    }
+  },
+  "projectFileDependencyGroups": {
+    "net9.0-windows10.0.26100": [
+      "DeftSharp.Windows.Input >= 0.10.0",
+      "InTheHand.BluetoothLE >= 4.0.43"
+    ]
+  },
+  "packageFolders": {
+    "C:\\Users\\super\\.nuget\\packages\\": {}
+  },
+  "project": {
+    "version": "1.0.0",
+    "restore": {
+      "projectUniqueName": "C:\\Users\\super\\OneDrive\\Documents\\GitHub\\WearbleGesture\\49022AppRev2\\49022AppRev2\\49022AppRev2.csproj",
+      "projectName": "49022AppRev2",
+      "projectPath": "C:\\Users\\super\\OneDrive\\Documents\\GitHub\\WearbleGesture\\49022AppRev2\\49022AppRev2\\49022AppRev2.csproj",
+      "packagesPath": "C:\\Users\\super\\.nuget\\packages\\",
+      "outputPath": "C:\\Users\\super\\OneDrive\\Documents\\GitHub\\WearbleGesture\\49022AppRev2\\49022AppRev2\\obj\\",
+      "projectStyle": "PackageReference",
+      "configFilePaths": [
+        "C:\\Users\\super\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+      ],
+      "originalTargetFrameworks": [
+        "net9.0-windows10.0.26100"
+      ],
+      "sources": {
+        "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+        "https://api.nuget.org/v3/index.json": {}
+      },
+      "frameworks": {
+        "net9.0-windows10.0.26100": {
+          "targetAlias": "net9.0-windows10.0.26100",
+          "projectReferences": {}
+        }
+      },
+      "warningProperties": {
+        "warnAsError": [
+          "NU1605"
+        ]
+      },
+      "restoreAuditProperties": {
+        "enableAudit": "true",
+        "auditLevel": "low",
+        "auditMode": "direct"
+      },
+      "SdkAnalysisLevel": "9.0.300"
+    },
+    "frameworks": {
+      "net9.0-windows10.0.26100": {
+        "targetAlias": "net9.0-windows10.0.26100",
+        "dependencies": {
+          "DeftSharp.Windows.Input": {
+            "target": "Package",
+            "version": "[0.10.0, )"
+          },
+          "InTheHand.BluetoothLE": {
+            "target": "Package",
+            "version": "[4.0.43, )"
+          }
+        },
+        "imports": [
+          "net461",
+          "net462",
+          "net47",
+          "net471",
+          "net472",
+          "net48",
+          "net481"
+        ],
+        "assetTargetFallback": true,
+        "warn": true,
+        "downloadDependencies": [
+          {
+            "name": "Microsoft.Windows.SDK.NET.Ref",
+            "version": "[10.0.26100.57, 10.0.26100.57]"
+          }
+        ],
+        "frameworkReferences": {
+          "Microsoft.NETCore.App": {
+            "privateAssets": "all"
+          },
+          "Microsoft.Windows.SDK.NET.Ref.Windows": {
+            "privateAssets": "all"
+          },
+          "Microsoft.WindowsDesktop.App.WindowsForms": {
+            "privateAssets": "none"
+          }
+        },
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.305/PortableRuntimeIdentifierGraph.json"
+      }
+    }
+  }
+}

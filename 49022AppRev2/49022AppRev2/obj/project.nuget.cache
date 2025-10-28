@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "dgSpecHash": "U6h0VJxH14o=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\super\\OneDrive\\Documents\\GitHub\\WearbleGesture\\49022AppRev2\\49022AppRev2\\49022AppRev2.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\super\\.nuget\\packages\\deftsharp.windows.input\\0.10.0\\deftsharp.windows.input.0.10.0.nupkg.sha512",
+    "C:\\Users\\super\\.nuget\\packages\\inthehand.bluetoothle\\4.0.43\\inthehand.bluetoothle.4.0.43.nupkg.sha512",
+    "C:\\Users\\super\\.nuget\\packages\\microsoft.windows.sdk.net.ref\\10.0.26100.57\\microsoft.windows.sdk.net.ref.10.0.26100.57.nupkg.sha512"
+  ],
+  "logs": []
+}

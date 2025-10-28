@@ -1,0 +1,91 @@
+{
+  "format": 1,
+  "restore": {
+    "C:\\Users\\super\\OneDrive\\Documents\\GitHub\\WearbleGesture\\49022AppRev2\\49022AppRev2\\49022AppRev2.csproj": {}
+  },
+  "projects": {
+    "C:\\Users\\super\\OneDrive\\Documents\\GitHub\\WearbleGesture\\49022AppRev2\\49022AppRev2\\49022AppRev2.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "C:\\Users\\super\\OneDrive\\Documents\\GitHub\\WearbleGesture\\49022AppRev2\\49022AppRev2\\49022AppRev2.csproj",
+        "projectName": "49022AppRev2",
+        "projectPath": "C:\\Users\\super\\OneDrive\\Documents\\GitHub\\WearbleGesture\\49022AppRev2\\49022AppRev2\\49022AppRev2.csproj",
+        "packagesPath": "C:\\Users\\super\\.nuget\\packages\\",
+        "outputPath": "C:\\Users\\super\\OneDrive\\Documents\\GitHub\\WearbleGesture\\49022AppRev2\\49022AppRev2\\obj\\",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "C:\\Users\\super\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+        ],
+        "originalTargetFrameworks": [
+          "net9.0-windows10.0.26100"
+        ],
+        "sources": {
+          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net9.0-windows10.0.26100": {
+            "targetAlias": "net9.0-windows10.0.26100",
+            "projectReferences": {}
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        },
+        "SdkAnalysisLevel": "9.0.300"
+      },
+      "frameworks": {
+        "net9.0-windows10.0.26100": {
+          "targetAlias": "net9.0-windows10.0.26100",
+          "dependencies": {
+            "DeftSharp.Windows.Input": {
+              "target": "Package",
+              "version": "[0.10.0, )"
+            },
+            "InTheHand.BluetoothLE": {
+              "target": "Package",
+              "version": "[4.0.43, )"
+            }
+          },
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "downloadDependencies": [
+            {
+              "name": "Microsoft.Windows.SDK.NET.Ref",
+              "version": "[10.0.26100.57, 10.0.26100.57]"
+            }
+          ],
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            },
+            "Microsoft.Windows.SDK.NET.Ref.Windows": {
+              "privateAssets": "all"
+            },
+            "Microsoft.WindowsDesktop.App.WindowsForms": {
+              "privateAssets": "none"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.305/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    }
+  }
+}

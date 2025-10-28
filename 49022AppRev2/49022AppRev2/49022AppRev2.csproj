@@ -1,0 +1,17 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows10.0.26100</TargetFramework>
+    <RootNamespace>_49022AppRev2</RootNamespace>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DeftSharp.Windows.Input" Version="0.10.0" />
+    <PackageReference Include="InTheHand.BluetoothLE" Version="4.0.43" />
+  </ItemGroup>
+
+</Project>
