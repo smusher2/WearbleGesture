@@ -121,6 +121,7 @@ void MX_APPE_Config(void)
 
 void MX_APPE_Init(void)
 {
+
   System_Init();       /**< System initialization */
 
   SystemPower_Config(); /**< Configure the system Power Mode */
@@ -129,14 +130,16 @@ void MX_APPE_Init(void)
 
 /* USER CODE BEGIN APPE_Init_1 */
   APPD_Init();
-  
+
   /**
    * The Standby mode should not be entered before the initialization is over
    * The default state of the Low Power Manager is to allow the Standby Mode so an request is needed here
    */
   UTIL_LPM_SetOffMode(1 << CFG_LPM_APP, UTIL_LPM_DISABLE);
 
+
   BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
+
   /* Set LCD Foreground Layer  */
   UTIL_LCD_SetFuncDriver(&LCD_Driver); /* SetFunc before setting device */
   UTIL_LCD_SetDevice(0);            /* SetDevice after funcDriver is set */
@@ -153,8 +156,9 @@ void MX_APPE_Init(void)
   BSP_LCD_Refresh(0);
 
   //Switch RGB LED off
-  LED_Off();
+  //LED_Off();
   //Initialize user buttons
+
   Button_Init();
 
   RxUART_Init();
@@ -170,7 +174,6 @@ void MX_APPE_Init(void)
 /* USER CODE BEGIN APPE_Init_2 */
 
 /* USER CODE END APPE_Init_2 */
-
    return;
 }
 
@@ -629,13 +632,18 @@ void HAL_Delay(uint32_t Delay)
 void MX_APPE_Process(void)
 {
   /* USER CODE BEGIN MX_APPE_Process_1 */
-
+	extern UART_HandleTypeDef huart1;  // ✅ use the real one from usart.c
+	char msg[32];  // buffer for UART printing
+	snprintf(msg, sizeof(msg), "step 1\r\n");
+	HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
   /* USER CODE END MX_APPE_Process_1 */
   UTIL_SEQ_Run(UTIL_SEQ_DEFAULT);
   /* USER CODE BEGIN MX_APPE_Process_2 */
-
+	snprintf(msg, sizeof(msg), "step 2\r\n");
+	HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
   /* USER CODE END MX_APPE_Process_2 */
 }
+
 
 void UTIL_SEQ_Idle(void)
 {

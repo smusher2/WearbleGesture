@@ -101,7 +101,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_RTC_Init();
   MX_RF_Init();
-  //MX_APPE_Init();
+  MX_APPE_Init();
   HAL_Delay(1000);
   imu_status = bmi323_init(&imu_sensor);
   HAL_Delay(1000);
@@ -109,7 +109,7 @@ int main(void)
   while(1)
   {
     /* USER CODE END WHILE */
-    //MX_APPE_Process();
+    MX_APPE_Process();
     char msg1[200];
 
 	 	  snprintf(msg1, sizeof(msg1), "hello world\r\n");
@@ -220,12 +220,8 @@ void PeriphCommonClock_Config(void)
 static void MX_RTC_Init(void)
 {
 
-	extern UART_HandleTypeDef huart1;  // ✅ use the real one from usart.c
-	char msg[32];  // buffer for UART printing
-	snprintf(msg, sizeof(msg), "step 1\r\n");
-	HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
 
-
+ //chunk
   hrtc.Instance = RTC;
   hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
   hrtc.Init.AsynchPrediv = CFG_RTC_ASYNCH_PRESCALER;
@@ -234,13 +230,29 @@ static void MX_RTC_Init(void)
   hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
   hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
   hrtc.Init.OutPutRemap = RTC_OUTPUT_REMAP_NONE;
+  HAL_PWR_EnableBkUpAccess();
+
+  // Option A: Use LSI (no crystal needed)
+
+  RCC_OscInitTypeDef osc = {0};
+  RCC_PeriphCLKInitTypeDef pclk = {0};
+
+  osc.OscillatorType = RCC_OSCILLATORTYPE_LSI2;
+  osc.LSIState = RCC_LSI_ON;
+  osc.PLL.PLLState = RCC_PLL_NONE;
+  HAL_RCC_OscConfig(&osc);
+
+  pclk.PeriphClockSelection = RCC_PERIPHCLK_RTC;
+  pclk.RTCClockSelection = RCC_RTCCLKSOURCE_LSI;
+  HAL_RCCEx_PeriphCLKConfig(&pclk);
+
+
+  __HAL_RCC_RTC_ENABLE();
+  //chunk
+
   if (HAL_RTC_Init(&hrtc) != HAL_OK)
   {
-		snprintf(msg, sizeof(msg), "step 2\r\n");
-		HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
         Error_Handler();
-	    snprintf(msg, sizeof(msg), "step 6\r\n");
-	    HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
   }
   /* USER CODE BEGIN RTC_Init 2 */
   /* Disable RTC registers write protection */
@@ -252,8 +264,6 @@ static void MX_RTC_Init(void)
   /* Enable RTC registers write protection */
   LL_RTC_EnableWriteProtection(RTC);
   /* USER CODE END RTC_Init 2 */
-	snprintf(msg, sizeof(msg), "step 7\r\n");
-	HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
 
 }
 
