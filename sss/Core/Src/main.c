@@ -1,6 +1,7 @@
 /* ======================= Merged + Lean main.c ============================
    - Prints ONLY the detected gesture (conf) when it changes
    - Tap IRQ path now RETURNS a label; main prints it
+   - ADDED: stream raw accel/gyro every 50 ms with timestamp
    ======================================================================= */
 
 #include "main.h"
@@ -10,6 +11,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 
 /* ==== Cube peripherals ==== */
 SPI_HandleTypeDef hspi2;
@@ -20,6 +22,16 @@ UART_HandleTypeDef huart1;
 /* If you change ranges, update these two constants. */
 #define GYR_LSB_PER_DPS   16.384f   /* ±2000 dps  */
 #define ACC_LSB_PER_G     4096.0f   /* ±8 g       */
+#define G_TO_MPS2         9.80665f  /* m/s^2 per g */
+
+/* How fast we run gesture loop (ms) */
+#define STEP_MS               10u
+
+/* How often to PRINT raw packet (ms) */
+#define RAW_PRINT_PERIOD_MS   50u
+
+volatile uint8_t sensor_data = 0;
+
 
 /* Convert BMI323 raw to units expected by gesture.c
    - gesture.c expects accel ~1000 = 1g (legacy int)
@@ -56,8 +68,6 @@ static void MX_GPIO_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_USART1_UART_Init(void);
 
-
-
 /* ==== UART helper ==== */
 static void uart_print(const char *s) {
     HAL_UART_Transmit(&huart1, (uint8_t*)s, (uint16_t)strlen(s), HAL_MAX_DELAY);
@@ -87,29 +97,6 @@ static void bmi323_config_default(void)
     bmi323_enable_tap(&imu_sensor);
 }
 
-/* ==== Read & convert one BMI323 sample for gesture engine ==== */
-static void read_one_sample_for_gesture(int16_t *ax, int16_t *ay, int16_t *az,
-                                        int16_t *gx, int16_t *gy, int16_t *gz)
-{
-    bmi323_read_data(&imu_sensor);
-
-    /* Raw from driver */
-    int16_t axr = imu_sensor.imu_data.ax;
-    int16_t ayr = imu_sensor.imu_data.ay;
-    int16_t azr = imu_sensor.imu_data.az;
-    int16_t gxr = imu_sensor.imu_data.gx;
-    int16_t gyr = imu_sensor.imu_data.gy;
-    int16_t gzr = imu_sensor.imu_data.gz;
-
-    /* Convert to gesture.c expectations */
-    *ax = acc_raw_to_legacy(axr);  /* ~1000 = 1 g */
-    *ay = acc_raw_to_legacy(ayr);
-    *az = acc_raw_to_legacy(azr);
-    *gx = gyr_raw_to_dps_i16(gxr); /* integer dps   */
-    *gy = gyr_raw_to_dps_i16(gyr);
-    *gz = gyr_raw_to_dps_i16(gzr);
-}
-
 /* ============================ Application ============================ */
 int main(void)
 {
@@ -126,38 +113,112 @@ int main(void)
 
     uart_print("{ready}\r\n");
 
-    /* Only print when gesture label changes or confidence band changes */
-    // remove last_label/last_conf/MIN_CONF logic entirely
-
-    const uint32_t STEP_MS = 10;
+    /* we'll throttle UART dump to every 50ms */
 
     while (1)
     {
-        if (g_tap_irq) {
-            g_tap_irq = 0;
-            const char* tap_label = BMI323_HandleTapEvent(&imu_sensor, &haptic_deadline, &haptic_active);
-            if (tap_label) {
-                char tline[48];
-                int tn = snprintf(tline, sizeof(tline), "%s\r\n", tap_label);
-                HAL_UART_Transmit(&huart1, (uint8_t*)tline, (uint16_t)tn, HAL_MAX_DELAY);
+    	sensor_data = 0;
+        /* ---- Handle tap interrupt -> print tap label ---- */
+    	if (g_tap_irq) {
+    	    g_tap_irq = 0;
+    	    const char* tap_label = BMI323_HandleTapEvent(&imu_sensor,
+    	                                                  &haptic_deadline,
+    	                                                  &haptic_active);
+    	    if (tap_label) {
+    	        /* Map to 1/2/3 based on first letter (S/D/T) */
+    	        char c0 = tap_label[0];
+    	        if (c0 == 'S' || c0 == 's') {
+    	            sensor_data = 1;  /* Single Tap */
+    	        } else if (c0 == 'D' || c0 == 'd') {
+    	            sensor_data = 2;  /* Double Tap */
+    	        } else if (c0 == 'T' || c0 == 't') {
+    	            sensor_data = 3;  /* Triple Tap */
+    	        }
+
+    	        /* (Optional) keep your UART print */
+    	        char tline[48];
+    	        int  tn = snprintf(tline, sizeof(tline), "%s\r\n", tap_label);
+    	        HAL_UART_Transmit(&huart1, (uint8_t*)tline, (uint16_t)tn, HAL_MAX_DELAY);
+    	    }
+    	}
+
+
+        /* ---- Haptic housekeeping ---- */
+        Haptic_Buzz_Check2STOP(&haptic_deadline, &haptic_active);
+
+        /* ---- Grab current IMU sample ---- */
+        bmi323_read_data(&imu_sensor);
+
+        /* Raw integer LSB directly from sensor */
+        int16_t ax_raw = imu_sensor.imu_data.ax;
+        int16_t ay_raw = imu_sensor.imu_data.ay;
+        int16_t az_raw = imu_sensor.imu_data.az;
+        int16_t gx_raw = imu_sensor.imu_data.gx;
+        int16_t gy_raw = imu_sensor.imu_data.gy;
+        int16_t gz_raw = imu_sensor.imu_data.gz;
+
+        /* Convert raw -> physical-ish units for debug (not for gesture):
+           accel in m/s^2, gyro in dps (float) */
+
+        /* ---- Feed sample to gesture engine ----
+           gesture_process() wants:
+             - accel ~ 1000 = 1g (int16_t)
+             - gyro in integer dps (int16_t)
+        */
+        int16_t ax_legacy = acc_raw_to_legacy(ax_raw);
+        int16_t ay_legacy = acc_raw_to_legacy(ay_raw);
+        int16_t az_legacy = acc_raw_to_legacy(az_raw);
+        int16_t gx_dps_i  = gyr_raw_to_dps_i16(gx_raw);
+        int16_t gy_dps_i  = gyr_raw_to_dps_i16(gy_raw);
+        int16_t gz_dps_i  = gyr_raw_to_dps_i16(gz_raw);
+
+        gesture_event_t evt = gesture_process(
+            ax_legacy, ay_legacy, az_legacy,
+            gx_dps_i, gy_dps_i, gz_dps_i
+        );
+
+        /* ---- Print gesture if it's a valid classified event ---- */
+        /* Rotation recognized? Only set if no tap already set sensor_data */
+        /* Rotation recognized? Only set if no tap already set sensor_data */
+        if (sensor_data == 0
+            && evt.gesture[0] != '\0'
+            && evt.confidence >= 50)
+        {
+            /* Map rotations distinctly:
+               - "Rotate Left"  -> 3
+               - "Rotate Right" -> 4
+               (also accept snake_case variants if your code uses them) */
+            if (strstr(evt.gesture, "Rotate Left")  || strstr(evt.gesture, "rotate_left")) {
+                sensor_data = 3;
+            } else if (strstr(evt.gesture, "Rotate Right") || strstr(evt.gesture, "rotate_right")) {
+                sensor_data = 4;
             }
         }
 
-        Haptic_Buzz_Check2STOP(&haptic_deadline, &haptic_active);
 
-        int16_t ax, ay, az, gx, gy, gz;
-        read_one_sample_for_gesture(&ax, &ay, &az, &gx, &gy, &gz);
-
-        gesture_event_t evt = gesture_process(ax, ay, az, gx, gy, gz);
-
-        // PRINT on every accept (evt.gesture set & non-empty)
-        if (evt.gesture[0] != '\0' && strcmp(evt.gesture, "none") != 0 && evt.confidence >= 50) {
+        /* (Optional) keep your existing gesture print */
+        if (evt.gesture[0] != '\0'
+            && strcmp(evt.gesture, "none") != 0
+            && evt.confidence >= 50)
+        {
             char line[48];
-            int n = snprintf(line, sizeof(line), "%s\r\n", evt.gesture);
+            int  n = snprintf(line, sizeof(line), "%s\r\n", evt.gesture);
             HAL_UART_Transmit(&huart1, (uint8_t*)line, (uint16_t)n, HAL_MAX_DELAY);
         }
 
+
+
+
+        /* Sleep ~10ms to control loop rate */
         HAL_Delay(STEP_MS);
+
+        /* ---- Debug: print sensor_data when set ---- */
+        if (sensor_data != 0) {
+            char sdline[24];
+            int  sdn = snprintf(sdline, sizeof(sdline), "sensor_data=%u\r\n", (unsigned)sensor_data);
+            HAL_UART_Transmit(&huart1, (uint8_t*)sdline, (uint16_t)sdn, HAL_MAX_DELAY);
+        }
+
     }
 }
 
