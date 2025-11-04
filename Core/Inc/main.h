@@ -159,42 +159,10 @@ void MX_USART1_UART_Init(void);
 #define SPI2_SCK_Pin GPIO_PIN_1
 #define SPI2_SCK_GPIO_Port GPIOD
 
-#define REG_CHIP_ID_BMI323 0x00
-#define REG_ERR 0x01
-#define REG_SENSOR_STATUS 0x02
-#define REG_ACC_DATA_X 0x03
-#define REG_ACC_DATA_Y 0x04
-#define REG_ACC_DATA_Z 0x05
-#define REG_GYR_DATA_X 0x06
-#define REG_GYR_DATA_Y 0x07
-#define REG_GYR_DATA_Z 0x08
-#define REG_TEMP_DATA 0x09
-#define REG_CMD_BMI323     0x7E
-#define REG_GYR_CONF_BMI323 0x21
-#define REG_ACC_CONF_BMI323 0x20
-#define FEATURE_IO0_REG 0x10
-#define FEATURE_IO1_REG 0x11
-#define FEATURE_IO2_REG 0x12
-#define FEATURE_IO_STATUS_REG 0x14
-#define FEATURE_CTRL_REG 0x40
-#define INT_MAP2 0x3B
-#define IO_INT_CTRL 0x38
-#define FEATURE_EVENT_EXT  0x47
-#define TAP_1 0x1E
-#define TAP_2 0x1F
-#define FEATURE_DATA_ADDR  0x41
-#define FEATURE_DATA_TX  0x42
-#define FEATURE_DATA_STATUS 0x43
 
 
 
 
-
-
-#define CHIP_ID_BMI323   0x43
-#define SOFT_RESET_CMD_BMI323 0xDEAF
-
-/* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */
 
