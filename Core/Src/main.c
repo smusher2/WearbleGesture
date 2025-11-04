@@ -31,6 +31,8 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+#include "p2p_server_app.h"   // make sure you can call BLE_SendInstantValue
+uint8_t sensorData = 5;
 
 /* USER CODE END PTD */
 
@@ -68,6 +70,8 @@ void PeriphClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void BLE_SendInstantValue(uint8_t *data, uint8_t len);
+
 
 /* USER CODE END 0 */
 
@@ -116,15 +120,33 @@ int main(void)
 
   /* Init code for STM32_WPAN */
   MX_APPE_Init();
+  //sensorData = 'a';
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+ // sensorData=1;
+
   while(1)
   {
+ sensorData=1;
     /* USER CODE END WHILE */
     MX_APPE_Process();
+   // sensorData=;
 
     /* USER CODE BEGIN 3 */
+    // Check if we have new data to send
+
+    if (sensorData != 0 && BLE_IsReady())
+        {
+            // Send the event value (1–4)
+            BLE_SendInstantValue((uint8_t*)&sensorData, 1);
+            APP_DBG_MSG("📤 Sent data: %d\r\n", sensorData);
+
+            // Reset back to idle (0)
+            sensorData = 0;
+            BLE_SendInstantValue((uint8_t*)&sensorData, 1);
+        }
+
   }
   /* USER CODE END 3 */
 }
