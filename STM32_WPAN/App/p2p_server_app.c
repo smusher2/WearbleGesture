@@ -30,8 +30,12 @@
 static uint16_t hello_service_handle;
 static uint16_t hello_char_handle;
 extern uint8_t hello_timer_id;
+static uint8_t sensorData = 0;
+
 uint8_t hello_timer_id;  // Global timer ID for Hello messages
 uint8_t ble_connected = 0;
+
+
 
 /* USER CODE BEGIN P2P_PROTOTYPES */
 static void Send_Hello_Data(void);
@@ -471,9 +475,12 @@ void P2PS_Send_Notification(void)
   return;*/
 }
 
+
+/* USER CODE BEGIN FD_LOCAL_FUNCTIONS*/
 static void Send_Hello_Data(void)
 {
-	const uint8_t msg[] = {'H', 'e', 'l', 'l', 'o'};
+	//const uint8_t msg[] = {'H', 'e', 'l', 'l', 'o'};
+	uint8_t msg = 0;
 	tBleStatus ret;
 
 	    uint32_t start_time = HAL_GetTick();  // Record timestamp before sending
@@ -485,17 +492,41 @@ static void Send_Hello_Data(void)
 	    ret = aci_gatt_update_char_value(hello_service_handle,
 	                                     hello_char_handle,
 	                                     0,
-	                                     sizeof(msg),
-	                                     (uint8_t*)msg);
+	                                    1,
+	                                   &msg);
 
 	    // Turn OFF transmit LED (active-low)
 	    HAL_GPIO_WritePin(Transmitting_LED_GPIO_Port, Transmitting_LED_Pin, GPIO_PIN_SET);
 
 	    uint32_t end_time = HAL_GetTick();  // Record after send
 	    uint32_t latency = end_time - start_time;  // Calculate in ms
-
+	    if (ret == BLE_STATUS_SUCCESS)
+	        {
+	            APP_DBG_MSG("📤 Sent Hello (%lu ms)\r\n", latency);
+	        }
+	        else
+	        {
+	            APP_DBG_MSG("❌ Failed to send Hello (ret=0x%02X)\r\n", ret);
+	        }
 	    // Print latency only to terminal
-	    APP_DBG_MSG("BLE Tx Latency: %lu ms\r\n", latency);
+	    //APP_DBG_MSG("BLE Tx Latency: %lu ms\r\n", latency);
 
 	}
-/* USER CODE BEGIN FD_LOCAL_FUNCTIONS*/
+void BLE_SendInstantValue(uint8_t *data, uint8_t len)
+{
+    if (P2P_Server_App_Context.Notification_Status)  // only send if BLE connected
+    {
+        aci_gatt_update_char_value(hello_service_handle,
+                                   hello_char_handle,
+                                   0,
+                                   len,
+                                   data);
+        APP_DBG_MSG("📤 Sent data: %c\r\n", *data);
+    }
+}
+uint8_t BLE_IsReady(void)
+{
+    return P2P_Server_App_Context.Notification_Status;
+}
+
+/* USER CODE END FD_LOCAL_FUNCTIONS*/
