@@ -19,6 +19,10 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "app_ble.h"
+#include "bmi_323.h"
+#include "gpio.h"
+#include "gesture.h"
+#include "p2p_server_app.h"   // make sure you can call BLE_SendInstantValue
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -35,48 +39,6 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
-typedef struct
-{
-	int16_t ax;
-	int16_t ay;
-	int16_t az;
-	int16_t gx;
-	int16_t gy;
-	int16_t gz;
-
-}ImuDataTypeDef;
-
-typedef struct
-{
-	uint16_t spi_cs_pin;
-	GPIO_TypeDef *spi_cs_port;
-	SPI_HandleTypeDef *bmi323_spi;
-	ImuDataTypeDef imu_data;
-
-}bmi323TypeDef;
-
-typedef enum
-{
-	BMI323_OK = 0,
-	BMI323_SPI_ERROR,
-	BMI323_SPI_CHIP_ERROR,
-	BMI323_CONFIG_FILE_ERROR,
-}bmi323_StatusTypeDef;
-
-void Haptic_Buzz_Check2STOP(uint32_t* haptic_deadline, uint8_t* haptic_active);
-void Haptic_Buzz_Start(uint32_t* haptic_deadline, uint8_t* haptic_active);
-void OnRLED(void);
-void OffRLED(void);
-void OnGLED(void);
-void OffGLED(void);
-void OnBLED(void);
-void OffBLED(void);
-bmi323_StatusTypeDef bmi323_init(bmi323TypeDef* sensor);
-bmi323_StatusTypeDef bmi323_read_data(bmi323TypeDef* sensor);
-bmi323_StatusTypeDef BMI323_Feature_Engine_Enable(bmi323TypeDef* sensor);
-void bmi323_write_spi(bmi323TypeDef* sensor, uint8_t reg, uint8_t* data, uint16_t len);
-void bmi323_enable_tap(bmi323TypeDef* sensor);
-void BMI323_HandleTapEvent(bmi323TypeDef* sensor, uint32_t* haptic_deadline, uint8_t* haptic_active);
 
 
 /* USER CODE END PTD */
@@ -117,6 +79,25 @@ static const float ACC_LSB_PER_G  = 4096.0f;      // ±8 g
 static const float GYR_LSB_PER_DPS = 16.384f;     // ±2000 dps
 static const float G_TO_MPS2  =    9.80665f;
 
+#define STEP_MS               10u
+
+/* How often to PRINT raw packet (ms) */
+#define RAW_PRINT_PERIOD_MS   50u
+
+volatile uint8_t sensorData = 0;
+
+static inline int16_t acc_raw_to_legacy(int16_t raw) {
+    float v = (raw * 1000.0f) / ACC_LSB_PER_G;     /* 1000 ≈ 1 g */
+    if (v > 32767.0f) v = 32767.0f;
+    if (v < -32768.0f) v = -32768.0f;
+    return (int16_t)(v + (v >= 0 ? 0.5f : -0.5f));
+}
+static inline int16_t gyr_raw_to_dps_i16(int16_t raw) {
+    float dps = raw / GYR_LSB_PER_DPS;
+    if (dps > 32767.0f) dps = 32767.0f;
+    if (dps < -32768.0f) dps = -32768.0f;
+    return (int16_t)(dps + (dps >= 0 ? 0.5f : -0.5f));
+}
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -128,12 +109,42 @@ static void MX_DMA_Init(void);
 static void MX_RTC_Init(void);
 static void MX_IPCC_Init(void);
 static void MX_RF_Init(void);
+
 /* USER CODE BEGIN PFP */
 void PeriphClock_Config(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void BLE_SendInstantValue(uint8_t *data, uint8_t len);
+
+static void uart_print(const char *s) {
+    HAL_UART_Transmit(&huart1, (uint8_t*)s, (uint16_t)strlen(s), HAL_MAX_DELAY);
+}
+
+/* ==== Configure BMI323 like your first file (ODR/range/mode) ==== */
+static void bmi323_config_default(void)
+{
+    (void)bmi323_init(&imu_sensor);
+    (void)BMI323_Feature_Engine_Enable(&imu_sensor);  /* feature engine on */
+
+    /* Gyro: BW=0, RANGE=±2000 dps, ODR≈100 Hz, mode=enable */
+    uint8_t gyr[2];
+    gyr[0] = (0<<7) | (0x4<<4) | 0xA;   /* field mapping per your driver */
+    gyr[1] = 0x40;                      /* normal/enable */
+    bmi323_write_spi(&imu_sensor, REG_GYR_CONF_BMI323, gyr, 2);
+    HAL_Delay(10);
+
+    /* Accel: BW=0, RANGE=±8 g, ODR≈200 Hz, mode=enable */
+    uint8_t acc[2];
+    acc[0] = (0<<7) | (0x2<<4) | 0xA;
+    acc[1] = 0x40;                      /* normal/enable */
+    bmi323_write_spi(&imu_sensor, REG_ACC_CONF_BMI323, acc, 2);
+    HAL_Delay(10);
+
+    /* Tap detection engine */
+    bmi323_enable_tap(&imu_sensor);
+}
 
 /* USER CODE END 0 */
 
@@ -184,65 +195,125 @@ int main(void)
   /* Init code for STM32_WPAN */
   MX_APPE_Init();
   HAL_Delay(1000);
-  imu_status = bmi323_init(&imu_sensor);
-  feature_status = BMI323_Feature_Engine_Enable(&imu_sensor);          // write IO2=0x012C, IO_STATUS=0x0001,
-
-    uint8_t gyr[2];
-    gyr[0] = (0<<7) | (0x4<<4) | 0xA;   // 0x28: BW=0, RANGE=±2000, ODR=100 Hz
-    gyr[1] = 0x40;                       // mode = 0b100 (enabled)
-    bmi323_write_spi(&imu_sensor, REG_GYR_CONF_BMI323, gyr, 2);
-    HAL_Delay(10);
-
-    uint8_t acc[2];
-    acc[0] = (0<<7) | (0x2<<4) | 0xA;  // BW=0, ±8g, ODR=200 Hz
-    acc[1] = 0x40;                      // normal/enable
-    bmi323_write_spi(&imu_sensor, REG_ACC_CONF_BMI323, acc, 2);
-    HAL_Delay(10);
-
-    bmi323_enable_tap(&imu_sensor);
-
+  bmi323_config_default();
+  uart_print("{ready}\r\n");
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while(1)
   {
     /* USER CODE END WHILE */
     MX_APPE_Process();
+	sensorData = 0;
+    /* ---- Handle tap interrupt -> print tap label ---- */
+	if (g_tap_irq) {
+	    g_tap_irq = 0;
+	    const char* tap_label = BMI323_HandleTapEvent(&imu_sensor,
+	                                                  &haptic_deadline,
+	                                                  &haptic_active);
+	    if (tap_label) {
+	        /* Map to 1/2/3 based on first letter (S/D/T) */
+	        char c0 = tap_label[0];
+	        if (c0 == 'S' || c0 == 's') {
+	            sensorData = 1;  /* Single Tap */
+	        } else if (c0 == 'D' || c0 == 'd') {
+	            sensorData = 2;  /* Double Tap */
+	        } else if (c0 == 'T' || c0 == 't') {
+	            sensorData = 3;  /* Triple Tap */
+	        }
 
-  	  if (g_tap_irq)
-  	  {
-  		  g_tap_irq = 0;
-  		  BMI323_HandleTapEvent(&imu_sensor, &haptic_deadline, &haptic_active);   // read FEATURE_EVENT_EXT and act
-  	  }
-      Haptic_Buzz_Check2STOP(&haptic_deadline, &haptic_active);
-
-
- 	  bmi323_read_data(&imu_sensor);
-   	  ax = imu_sensor.imu_data.ax;
-   	  ay = imu_sensor.imu_data.ay;
-   	  az = imu_sensor.imu_data.az;
-   	  gx = imu_sensor.imu_data.gx;
-   	  gy = imu_sensor.imu_data.gy;
-   	  gz = imu_sensor.imu_data.gz;
-
-   	  ax_m = ax * G_TO_MPS2 / ACC_LSB_PER_G;
-   	  ay_m = ay * G_TO_MPS2 / ACC_LSB_PER_G;
-   	  az_m = az * G_TO_MPS2 / ACC_LSB_PER_G;
-   	  gx_m = gx / GYR_LSB_PER_DPS;
-   	  gy_m = gy / GYR_LSB_PER_DPS;
-   	  gz_m = gz / GYR_LSB_PER_DPS;
-
-
-
-      char msg1[200];
-
- 	  snprintf(msg1, sizeof(msg1), "AX: %.3f, AY: %.3f, AZ: %.3f, GX: %.3f, GY: %.3f, GZ: %.3f \r\n", ax_m, ay_m, az_m, gx_m, gy_m, gz_m);
-
- 	    // 3. Transmit over UART (blocking mode)
- 	  HAL_UART_Transmit(&huart1, (uint8_t*)msg1, strlen(msg1), HAL_MAX_DELAY);
+	        /* (Optional) keep your UART print */
+	        char tline[48];
+	        int  tn = snprintf(tline, sizeof(tline), "%s\r\n", tap_label);
+	        HAL_UART_Transmit(&huart1, (uint8_t*)tline, (uint16_t)tn, HAL_MAX_DELAY);
+	    }
+	}
 
 
+    /* ---- Haptic housekeeping ---- */
+    Haptic_Buzz_Check2STOP(&haptic_deadline, &haptic_active);
 
-   	  HAL_Delay(10);
+    /* ---- Grab current IMU sample ---- */
+    bmi323_read_data(&imu_sensor);
+
+    /* Raw integer LSB directly from sensor */
+    int16_t ax_raw = imu_sensor.imu_data.ax;
+    int16_t ay_raw = imu_sensor.imu_data.ay;
+    int16_t az_raw = imu_sensor.imu_data.az;
+    int16_t gx_raw = imu_sensor.imu_data.gx;
+    int16_t gy_raw = imu_sensor.imu_data.gy;
+    int16_t gz_raw = imu_sensor.imu_data.gz;
+
+    /* Convert raw -> physical-ish units for debug (not for gesture):
+       accel in m/s^2, gyro in dps (float) */
+
+    /* ---- Feed sample to gesture engine ----
+       gesture_process() wants:
+         - accel ~ 1000 = 1g (int16_t)
+         - gyro in integer dps (int16_t)
+    */
+    int16_t ax_legacy = acc_raw_to_legacy(ax_raw);
+    int16_t ay_legacy = acc_raw_to_legacy(ay_raw);
+    int16_t az_legacy = acc_raw_to_legacy(az_raw);
+    int16_t gx_dps_i  = gyr_raw_to_dps_i16(gx_raw);
+    int16_t gy_dps_i  = gyr_raw_to_dps_i16(gy_raw);
+    int16_t gz_dps_i  = gyr_raw_to_dps_i16(gz_raw);
+
+    gesture_event_t evt = gesture_process(
+        ax_legacy, ay_legacy, az_legacy,
+        gx_dps_i, gy_dps_i, gz_dps_i
+    );
+
+    /* ---- Print gesture if it's a valid classified event ---- */
+    /* Rotation recognized? Only set if no tap already set sensor_data */
+    /* Rotation recognized? Only set if no tap already set sensor_data */
+    if (sensorData == 0
+        && evt.gesture[0] != '\0'
+        && evt.confidence >= 50)
+    {
+        /* Map rotations distinctly:
+           - "Rotate Left"  -> 3
+           - "Rotate Right" -> 4
+           (also accept snake_case variants if your code uses them) */
+        if (strstr(evt.gesture, "Rotate Left")  || strstr(evt.gesture, "rotate_left")) {
+            sensorData = 3;
+        } else if (strstr(evt.gesture, "Rotate Right") || strstr(evt.gesture, "rotate_right")) {
+            sensorData = 4;
+        }
+    }
+
+    if (sensorData != 0 && BLE_IsReady())
+        {
+            // Send the event value (1–4)
+            BLE_SendInstantValue((uint8_t*)&sensorData, 1);
+            APP_DBG_MSG("📤 Sent data: %d\r\n", sensorData);
+
+            // Reset back to idle (0)
+            sensorData = 0;
+            BLE_SendInstantValue((uint8_t*)&sensorData, 1);
+        }
+
+    /* (Optional) keep your existing gesture print */
+    if (evt.gesture[0] != '\0'
+        && strcmp(evt.gesture, "none") != 0
+        && evt.confidence >= 50)
+    {
+        char line[48];
+        int  n = snprintf(line, sizeof(line), "%s\r\n", evt.gesture);
+        HAL_UART_Transmit(&huart1, (uint8_t*)line, (uint16_t)n, HAL_MAX_DELAY);
+    }
+
+
+
+
+    /* Sleep ~10ms to control loop rate */
+    HAL_Delay(STEP_MS);
+
+    /* ---- Debug: print sensor_data when set ---- */
+    if (sensorData != 0) {
+        char sdline[24];
+        int  sdn = snprintf(sdline, sizeof(sdline), "sensor_data=%u\r\n", (unsigned)sensorData);
+        HAL_UART_Transmit(&huart1, (uint8_t*)sdline, (uint16_t)sdn, HAL_MAX_DELAY);
+    }
 
     /* USER CODE BEGIN 3 */
   }
@@ -696,295 +767,9 @@ void PeriphClock_Config(void)
 	return;
 }
 
-void bmi323_activate_spi(bmi323TypeDef* sensor)
-{
-	HAL_GPIO_WritePin(sensor->spi_cs_port, sensor->spi_cs_pin, GPIO_PIN_RESET);
-}
 
-void bmi323_deactivate_spi(bmi323TypeDef* sensor)
-{
-	HAL_GPIO_WritePin(sensor->spi_cs_port, sensor->spi_cs_pin, GPIO_PIN_SET);
-}
 
 
-
-void bmi323_write_spi(bmi323TypeDef* sensor, uint8_t reg, uint8_t* data, uint16_t len)
-{
-    uint8_t buf[1 + len];
-    buf[0] = reg & 0x7F;  // write = MSB = 0
-    memcpy(&buf[1], data, len);
-
-    bmi323_activate_spi(sensor);
-    HAL_SPI_Transmit(sensor->bmi323_spi, buf, sizeof(buf), HAL_MAX_DELAY);
-    bmi323_deactivate_spi(sensor);
-}
-
-static void bmi323_receive_spi(bmi323TypeDef* sensor, uint8_t offset_reg, uint8_t* data, uint16_t len)
-{
-	uint8_t data_temp[20], data_temp_byte;
-	bmi323_activate_spi(sensor); //10
-	data_temp[0] = offset_reg | 0x80;
-	HAL_SPI_Transmit(sensor->bmi323_spi, data_temp, 1, 1000);
-	HAL_SPI_Receive(sensor->bmi323_spi, &data_temp_byte, 1, 1000);
-	HAL_SPI_Receive(sensor->bmi323_spi, data, len, 1000);
-	bmi323_deactivate_spi(sensor);
-
-}
-
-
-
-
-void bmi323_enable_tap(bmi323TypeDef* sensor)
-{
-
-	//extern UART_HandleTypeDef huart1;  // ✅ use the real one from usart.c
-	//char msg[32];  // buffer for UART printing
-
-	uint8_t temp_data[2] = {0};
-	bmi323_receive_spi(sensor, FEATURE_CTRL_REG, temp_data, 2);
-	temp_data[0] |= 0x01;
-	bmi323_write_spi(sensor, FEATURE_CTRL_REG, temp_data, 2);
-
-	uint8_t tap_en[2] = {0};
-	bmi323_receive_spi(sensor, FEATURE_IO0_REG, tap_en, 2);
-	tap_en[1] |= (1u<<4) | (1u<<5);
-	bmi323_write_spi(sensor, FEATURE_IO0_REG, tap_en, 2);
-
-	uint8_t map_int[2] = {0};
-	bmi323_receive_spi(sensor, INT_MAP2, map_int, 2);
-    map_int[0] = (uint8_t)((map_int[0] & ~0x03u) | 0x01u);
-	bmi323_write_spi(sensor, INT_MAP2, map_int, 2);
-
-
-	uint8_t io[2] = {0};
-	bmi323_receive_spi(sensor, IO_INT_CTRL, io, 2);
-	io[0] |=  (1u<<2);   // int1_output_en = 1  👈 required
-	io[0] &= ~(1u<<1);   // int1_od = 0 (push-pull)
-	io[0] |=  (1u<<0);   // int1_lvl = 1 (active high)
-	bmi323_write_spi(sensor, IO_INT_CTRL, io, 2);
-
-    /*
-	//configure modes in extended reg field
-	uint8_t tap1_addr = TAP_1;
-	uint8_t tap2_addr = TAP_2;
-
-
-	uint8_t mode1[2] = {0};
-	uint8_t mode2[2] = {0};
-	feature_read_word(sensor, tap1_addr, mode1);
-	mode1[0] = (uint8_t)((mode1[0] & ~(0x3u << 6)) | (0x2u << 6));
-	feature_write_word(sensor, tap1_addr, mode1);
-
-	feature_read_word(sensor, tap2_addr, mode2);
-	mode2[0] = (uint8_t)(mode2[0] | (0xFFu));
-	mode2[1] = (uint8_t)(mode2[1] | (0x3u));
-	feature_write_word(sensor, tap2_addr, mode2);
-	HAL_Delay(20);
-	feature_read_word(sensor, tap2_addr, mode2);
-
-
-	snprintf(msg, sizeof(msg), "reg read: 0x%02X 0x%02X \r\n", mode2[1], mode2[0]);
-	HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
-    */
-	uint8_t dummy[2];
-	bmi323_receive_spi(sensor, FEATURE_IO_STATUS_REG, dummy, 2); // read to clear
-}
-
-
-// Assumes: FEATURE_DATA_ADDR=0x41, FEATURE_DATA_TX=0x42, FEATURE_DATA_STATUS=0x43
-
-
-bmi323_StatusTypeDef bmi323_init(bmi323TypeDef* sensor)
-{
-	extern UART_HandleTypeDef huart1;  // ✅ use the real one from usart.c
-
-	uint8_t temp_data[2] = {0};
-	char msg[32];  // buffer for UART printing
-
-	bmi323_activate_spi(sensor);
-	HAL_Delay(10);
-	bmi323_deactivate_spi(sensor);
-	HAL_Delay(10);
-
-	bmi323_receive_spi(sensor, REG_CHIP_ID_BMI323, temp_data, 1); //dummy read for SPI configuration
-
-	bmi323_receive_spi(sensor, REG_CHIP_ID_BMI323, temp_data, 1); //actual read
-
-	snprintf(msg, sizeof(msg), "Chip ID read: 0x%02X\r\n", temp_data[0]);
-	HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
-
-	if ((temp_data[0] != 0x43) && (temp_data[0]!= 0xA6) && (temp_data[0] != 0x41))
-	{
-
-	    return BMI323_SPI_CHIP_ERROR;
-	}
-
-	//soft reset the BMI
-	/*
-	uint8_t reset_cmd[2] = {0xAF, 0xDE};  // 0xDEAF little endian
-	bmi323_write_spi(sensor, REG_CMD_BMI323, reset_cmd, 2);
-	HAL_Delay(20);
-	*/
-
-	//READ POWER STATUS
-	bmi323_receive_spi(sensor, REG_ERR, temp_data, 1);
-	snprintf(msg, sizeof(msg), "POWER STATUS read: 0x%02X\r\n", temp_data[0]);
-	HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
-	if (temp_data[0] != 0x00) {  // if any error bits are set
-	    return BMI323_SPI_ERROR;
-	}
-
-
-	//READ STATUS FLAG
-	bmi323_receive_spi(sensor, REG_SENSOR_STATUS, temp_data, 1);
-	snprintf(msg, sizeof(msg), "SENSOR STATUS read: 0x%02X\r\n", temp_data[0]);
-	HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
-//	if ((temp_data[0]) != 0b1) {  // ready bit
-//	    return BMI323_SPI_ERROR;
-//	}
-
-
-
-	//Normal Power Mode Operation: write data bits and read
-	//temp_data[0] = 0x27;
-	//temp_data[1] = 0x40;
-	//bmi323_write_spi(sensor, REG_ACC_CONF_BMI323, temp_data, 2);
-	//HAL_Delay(10);
-
-	//temp_data[0] = 0x4B;
-	//temp_data[1] = 0x40;
-	//bmi323_write_spi(sensor, REG_GYR_CONF_BMI323, temp_data, 2);
-	//HAL_Delay(10);
-
-
-	return BMI323_OK;
-}
-
-bmi323_StatusTypeDef bmi323_read_data(bmi323TypeDef* sensor)
-{
-	extern UART_HandleTypeDef huart1;  // ✅ use the real one from usart.c
-
-
-	uint8_t temp_data[12];
-	bmi323_receive_spi(sensor, REG_ACC_DATA_X, temp_data, 12);
-	sensor->imu_data.ax = (temp_data[1] << 8) | temp_data[0];
-	sensor->imu_data.ay = (temp_data[3] << 8) | temp_data[2];
-	sensor->imu_data.az = (temp_data[5] << 8) | temp_data[4];
-	sensor->imu_data.gx = (temp_data[7] << 8) | temp_data[6];
-	sensor->imu_data.gy = (temp_data[9] << 8) | temp_data[8];
-	sensor->imu_data.gz = (temp_data[11] << 8) | temp_data[10];
-
-
-
-	return BMI323_OK;
-
-
-}
-
-void BMI323_HandleTapEvent(bmi323TypeDef* sensor, uint32_t* haptic_deadline, uint8_t* haptic_active)
-{
-
-	extern UART_HandleTypeDef huart1;  // ✅ use the real one from usart.c
-
-	char msg[32];  // buffer for UART printing
-
-    uint8_t tap_evt[2];
-    bmi323_receive_spi(sensor, FEATURE_EVENT_EXT, tap_evt, 2); // [LSB, MSB]
-    uint8_t tap_type = tap_evt[0];
-    if (tap_type & (1u<<4)) {
-        // double tap
-    	snprintf(msg, sizeof(msg), "Double Tap\r\n");
-    	HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
-    } else if (tap_type & (1u<<3)) {
-        // single tap
-    	snprintf(msg, sizeof(msg), "Single Tap\r\n");
-    	HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
-    }
-
-    // (reading FEATURE_EVENT_EXT clears the event indicators)
-    Haptic_Buzz_Start(haptic_deadline, haptic_active);
-
-}
-
-// Call this once, before bmi323_enable_tap() and before enabling acc/gyro.
-bmi323_StatusTypeDef BMI323_Feature_Engine_Enable(bmi323TypeDef* sensor)
-{
-    // 1) FEATURE_IO2 = 0x012C  (LSB first)
-    uint8_t io2[2] = { 0x2C, 0x01 };
-    bmi323_write_spi(sensor, FEATURE_IO2_REG, io2, 2);
-
-    // 2) FEATURE_IO_STATUS = 0x0001 (LSB first)
-    uint8_t iostat[2] = { 0x01, 0x00 };
-    bmi323_write_spi(sensor, FEATURE_IO_STATUS_REG, iostat, 2);
-
-    // 3) FEATURE_CTRL.engine_en = 1
-    uint8_t fctrl[2] = {0};
-    bmi323_receive_spi(sensor, FEATURE_CTRL_REG, fctrl, 2);
-    fctrl[0] |= 0x01;                 // bit0 = engine_en
-    bmi323_write_spi(sensor, FEATURE_CTRL_REG, fctrl, 2);
-
-    // 4) Poll FEATURE_IO1.error_status for 0b001 (datasheet’s “engine ready”)
-    uint32_t t0 = HAL_GetTick();
-    while ((HAL_GetTick() - t0) < 50) {     // ~50 ms timeout
-        uint8_t io1[2] = {0};
-        bmi323_receive_spi(sensor, FEATURE_IO1_REG, io1, 2);
-        if ((io1[0] & 0x0F) == 0x01) {      // error_status==0b001
-            return BMI323_OK;
-        }
-    }
-    return BMI323_CONFIG_FILE_ERROR;
-}
-
-void Haptic_Buzz_Start(uint32_t* haptic_deadline, uint8_t* haptic_active)
-{
-    // If already buzzing, choose behavior: extend or ignore.
-    if (*haptic_active) {
-        // ignore
-        return;
-    }
-
-    HAL_GPIO_WritePin(HAPTIC_PIN_GPIO_Port, HAPTIC_PIN_Pin, GPIO_PIN_SET); // ON
-    *haptic_deadline = HAL_GetTick() + 100;
-    *haptic_active = 1;
-}
-
-void Haptic_Buzz_Check2STOP(uint32_t* haptic_deadline, uint8_t* haptic_active)
-{
-    // signed subtraction handles HAL_GetTick wrap-around safely
-    if (*haptic_active && (int32_t)(HAL_GetTick() - *haptic_deadline) >= 0) {
-        HAL_GPIO_WritePin(HAPTIC_PIN_GPIO_Port, HAPTIC_PIN_Pin, GPIO_PIN_RESET); // OFF
-        *haptic_active = 0;
-    }
-}
-
-void OnRLED(void)
-{
-    HAL_GPIO_WritePin(RLED_PIN_GPIO_Port, RLED_PIN_Pin, GPIO_PIN_RESET); // OFF
-}
-void OffRLED(void)
-{
-    HAL_GPIO_WritePin(RLED_PIN_GPIO_Port, RLED_PIN_Pin, GPIO_PIN_SET); // OFF
-}
-
-
-void OnBLED(void)
-{
-    HAL_GPIO_WritePin(BLED_PIN_GPIO_Port, BLED_PIN_Pin, GPIO_PIN_RESET); // OFF
-}
-void OffBLED(void)
-{
-    HAL_GPIO_WritePin(BLED_PIN_GPIO_Port, BLED_PIN_Pin, GPIO_PIN_SET); // OFF
-}
-
-
-void OnGLED(void)
-{
-    HAL_GPIO_WritePin(GLED_PIN_GPIO_Port, GLED_PIN_Pin, GPIO_PIN_RESET); // OFF
-}
-void OffGLED(void)
-{
-    HAL_GPIO_WritePin(GLED_PIN_GPIO_Port, GLED_PIN_Pin, GPIO_PIN_SET); // OFF
-}
 
 /* USER CODE END 4 */
 
